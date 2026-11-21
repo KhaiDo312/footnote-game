@@ -16,7 +16,7 @@ export const MAX_SOURCE_CHARS = 50_000       // upload/paste cap
 export const MAX_ACTIVE_ROOMS_PER_HOST = 3   // rooms not finished/failed
 export const QUESTION_SECONDS = 30
 export const LATE_ANSWER_GRACE_MS = 2_000
-export const INDEX_TIMEOUT_MS = 2 * 60_000   // indexing check gives up after 2 minutes
+export const INDEX_TIMEOUT_MS = 5 * 60_000   // indexing check gives up after 5 minutes (was 2; see §10.6)
 export const INDEX_POLL_MS = 3_000
 export const JOIN_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ' // no O, I, L
 export const JOIN_CODE_LENGTH = 5
@@ -178,12 +178,12 @@ RBAC is off inside actions.
 
 | Job | Payload | What it does | Built-ins |
 |---|---|---|---|
-| `prepare-room` | `{ roomId, attempt }` | **(0)** Exit if the room isn't `preparing` or `attempt ≠ room.prepareAttempt` (stale job). **(a)** `kb.list({ folder })`. If items are still `queued/running`: if more than `INDEX_TIMEOUT_MS` (2 min) has passed since `startedAt` (kept in `job.resumeFrom`), set room `error` with "Indexing took too long. Press Retry." Otherwise `ctx.continue({ startedAt }, { afterMs: INDEX_POLL_MS })` and stop. If an item shows `error`, set room `error`. **(b)** Once `completed`, run the question-generation prompt (§4.1). If the AI call throws, set `error`. **(c)** Verify each answer with fulltext search (§3). **(d)** Write `questions` and `roomSecrets.answerKeys` and set the room to `lobby`. If the content is unusable or fewer than 3 questions survive, set `failed`. | `knowledge.list/search` · `createDeepSpaceAI` + `generateText` + `Output.object` · `ctx.continue` · records through the job's owner context |
+| `prepare-room` | `{ roomId, attempt }` | **(0)** Exit if the room isn't `preparing` or `attempt ≠ room.prepareAttempt` (stale job). **(a)** `kb.list({ folder })`. If items are still `queued/running`: if more than `INDEX_TIMEOUT_MS` (5 min) has passed since `startedAt` (kept in `job.resumeFrom`), set room `error` with "Indexing took too long. Press Retry." Otherwise `ctx.continue({ startedAt }, { afterMs: INDEX_POLL_MS })` and stop. If an item shows `error`, set room `error`. **(b)** Once `completed`, run the question-generation prompt (§4.1). If the AI call throws, set `error`. **(c)** Verify each answer with fulltext search (§3). **(d)** Write `questions` and `roomSecrets.answerKeys` and set the room to `lobby`. If the content is unusable or fewer than 3 questions survive, set `failed`. | `knowledge.list/search` · `createDeepSpaceAI` + `generateText` + `Output.object` · `ctx.continue` · records through the job's owner context |
 
 **`failed` vs `error`:** `failed` means the document can't make a game, and
 retrying won't help, so the host makes a new room. `error` means something
 technical went wrong (indexing timeout, knowledge error, AI call failure). The
-host sees a **Retry** button that calls `retryPrepare`. The 2-minute cutoff
+host sees a **Retry** button that calls `retryPrepare`. The 5-minute cutoff
 means the job can never loop forever.
 
 Why a job: nothing calls us when indexing finishes, and a model call can take
@@ -370,7 +370,7 @@ common answer that all 5 gave gets 100 + 0 = **100**.
             createRoom
                 │        ┌── host: Retry (retryPrepare) ──┐
                 ▼        ▼                                │
-           [preparing] ── indexing > 2 min / index error / AI error ──▶ [error]
+           [preparing] ── indexing > 5 min / index error / AI error ──▶ [error]
                 │    └─── usable:false / <3 verified questions ──────▶ [failed]
                 │ job done
              [lobby]  ◀── players joinRoom (also allowed later)
@@ -485,7 +485,7 @@ The landing page (`src/pages/index.tsx`) gets a short pitch and a "Host a game" 
 | Day | Build | Deployable result | Check before deploy |
 |---|---|---|---|
 | **Day 1 — Sat Nov 21** (today) | `auth whoami`; add the knowledge binding to `wrangler.toml`; `src/game/config.ts`; `join-code.ts` + unit tests; the 5 game schemas registered; landing page placeholder; first commit + `deploy` | App live with the knowledge base provisioned and the schemas loaded (no game UI yet) | `type-check`, `test:unit`, `test run`; `logs` show a clean boot (no schema-lint warnings) |
-| **Day 2 — Sun Nov 22** | `createRoom`, `retryPrepare`, `prepare-room` job (knowledge add → poll with 2-min cutoff → generate → verify), `new.tsx`, room page showing status, join code, host question list, `failReason`, Retry button | Host can upload a doc and see "lobby, 5 questions ready", "not enough content" for nonsense, or `error` + Retry | Real doc + junk doc; `logs`, `app usage`; confirm `enqueueJob` works with `authorizeWrite:false` |
+| **Day 2 — Sun Nov 22** | `createRoom`, `retryPrepare`, `prepare-room` job (knowledge add → poll with time cutoff → generate → verify), `new.tsx`, room page showing status, join code, host question list, `failReason`, Retry button | Host can upload a doc and see "lobby, 5 questions ready", "not enough content" for nonsense, or `error` + Retry | Real doc + junk doc; `logs`, `app usage`; confirm `enqueueJob` works with `authorizeWrite:false` |
 | **Day 3 — Mon Nov 23** | `joinRoom` + `/join/[code]`, `nextQuestion`, `submitAnswer` (answer-list matching), `revealQuestion` + `scoring.ts` + tests, Lobby/Question/Reveal/Scoreboard UI | **Full core path** with 2 browsers: join by code, live question, 30 s timer, reveal, final scoreboard | `vitest`; manual two-account run |
 | **Day 4 — Tue Nov 24** (due 11:59 PM ET) | **AI judge for off-list answers** (first thing in the morning) + quote guard; two-user Playwright spec; design pass; NOTES.md; final deploy | Feature-complete; NOTES.md honest about gaps | `deepspace test run all`, `logs --json`, `app usage`; deploy by ~8 PM to leave buffer |
 
@@ -496,7 +496,7 @@ The landing page (`src/pages/index.tsx`) gets a short pitch and a "Host a game" 
 4. … and **last of all**: the AI check for off-list answers. It's the core RAG
    feature, so it's scheduled first on Day 4, not last.
 
-**Never cut:** server-side scoring, hidden answer keys, the 2-minute indexing
+**Never cut:** server-side scoring, hidden answer keys, the indexing
 cutoff, and the cost caps.
 
 ---
@@ -509,5 +509,5 @@ cutoff, and the cost caps.
 3. **Mid-game joins are allowed.** Late players score from their first answer.
 4. **.txt and .md only.** The browser reads them with `file.text()` and sends the text. No file storage.
 5. **5-letter join codes**, e.g. `/join/KQXTR`. No O, I, L. Unique across all rooms (§1).
-6. **The indexing check gives up after 2 minutes** and the room goes to `error` with a Retry button.
+6. **The indexing check gives up after 5 minutes** and the room goes to `error` with a Retry button. (Originally 2 minutes; changed Nov 21 after live indexing took 96 s for a 0.6 KB doc and more than 120 s for a 3 KB doc.)
 7. **The off-list AI check is the last thing to cut**; visual polish goes first.

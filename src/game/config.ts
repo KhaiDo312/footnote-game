@@ -38,8 +38,9 @@ export const LATE_ANSWER_GRACE_MS = 2_000
 /** Longest answer a player may type. */
 export const MAX_ANSWER_CHARS = 80
 
-/** The indexing check gives up after this long and sets the room to "error". */
-export const INDEX_TIMEOUT_MS = 2 * 60_000
+/** The indexing check gives up after this long and sets the room to "error".
+ *  Measured on the live app (Nov 21): 96 s for a 0.6 KB doc, >120 s for 3 KB. */
+export const INDEX_TIMEOUT_MS = 5 * 60_000
 
 /** How often the indexing check looks at the knowledge base. */
 export const INDEX_POLL_MS = 3_000

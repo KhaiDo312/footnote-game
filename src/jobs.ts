@@ -7,7 +7,7 @@
  *
  *   1. Wait for the knowledge index to finish. The job checks every
  *      INDEX_POLL_MS by "continuing" itself later (ctx.continue), and gives up
- *      after INDEX_TIMEOUT_MS → room 'error' (the host gets a Retry button).
+ *      after INDEX_TIMEOUT_MS (5 min) → room 'error' (the host gets a Retry button).
  *   2. Ask the AI for questions                → if it can't: 'error'
  *   3. Keep only answers found in the document → too few questions: 'failed'
  *   4. Save the questions (hidden from players) and the answer keys
@@ -67,7 +67,8 @@ async function prepareRoom(job: Job, ctx: JobContext, env: Env): Promise<unknown
   }
   if (indexing === 'waiting') {
     if (Date.now() - wait.startedAt > INDEX_TIMEOUT_MS) {
-      await setRoom({ status: 'error', failReason: 'Indexing took longer than 2 minutes. Press Retry.' })
+      const minutes = Math.round(INDEX_TIMEOUT_MS / 60_000)
+      await setRoom({ status: 'error', failReason: `Indexing took longer than ${minutes} minutes. Press Retry.` })
       return { outcome: 'error', reason: 'indexing timed out' }
     }
     ctx.progress(Math.min(0.5, (Date.now() - wait.startedAt) / INDEX_TIMEOUT_MS), 'Indexing')

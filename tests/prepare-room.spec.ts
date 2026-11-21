@@ -14,11 +14,11 @@ import { expect, test } from '@playwright/test'
 import { signInAndGetToken } from './helpers/auth'
 import { callActionAs, readAs } from './helpers/records'
 
-test.describe.configure({ timeout: 4 * 60_000 })
+test.describe.configure({ timeout: 7 * 60_000 })
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')
 
-/** Re-reads the room every 3 s until it leaves 'preparing' (up to 3 minutes). */
+/** Re-reads the room every 3 s until it leaves 'preparing' (up to 6 minutes). */
 async function waitUntilPrepared(baseURL: string, token: string, roomId: string): Promise<Room> {
   let room: Room | undefined
   await expect
@@ -28,7 +28,7 @@ async function waitUntilPrepared(baseURL: string, token: string, roomId: string)
         room = rows[0]?.data
         return room?.status
       },
-      { timeout: 3 * 60_000, intervals: [3_000] },
+      { timeout: 6 * 60_000, intervals: [3_000] },
     )
     .toMatch(/^(lobby|failed|error)$/)
   return room!

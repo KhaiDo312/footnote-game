@@ -33,7 +33,7 @@ export default function RoomPage() {
       {data.status === 'preparing' && (
         <div data-testid="room-preparing">
           <p className="text-lg">Reading your document and writing questions…</p>
-          <p className="mt-2 text-sm text-muted-foreground">This usually takes 1–2 minutes. You can leave this page open.</p>
+          <p className="mt-2 text-sm text-muted-foreground">This usually takes 2–3 minutes. You can leave this page open.</p>
         </div>
       )}
 
