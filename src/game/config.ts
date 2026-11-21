@@ -1,0 +1,43 @@
+/**
+ * Footnote game settings — every tunable value lives here.
+ *
+ * To switch the AI model, change AI_MODEL. It is used by every AI call
+ * (question generation and answer judging); nothing else names a model.
+ * Valid ids are listed in node_modules/deepspace/dist/worker.d.ts
+ * (search for DEEPSPACE_AI_MODELS).
+ */
+
+/** The one model used for all AI calls. The app owner pays for these. */
+export const AI_MODEL = 'claude-haiku-5-5'
+
+/** Longest document a host may upload or paste, in characters. */
+export const MAX_SOURCE_CHARS = 50_000
+
+/** Shortest document worth indexing, in characters. */
+export const MIN_SOURCE_CHARS = 200
+
+/** Cost cap: rooms a host may have that are not finished or failed. */
+export const MAX_ACTIVE_ROOMS_PER_HOST = 3
+
+/** How many questions we ask the AI for, and the fewest we will play with. */
+export const QUESTIONS_REQUESTED = 5
+export const MIN_PLAYABLE_QUESTIONS = 3
+
+/** Seconds players get to answer each question. */
+export const QUESTION_SECONDS = 30
+
+/** Extra time the server accepts after the timer, for network delay. */
+export const LATE_ANSWER_GRACE_MS = 2_000
+
+/** Longest answer a player may type. */
+export const MAX_ANSWER_CHARS = 80
+
+/** The indexing check gives up after this long and sets the room to "error". */
+export const INDEX_TIMEOUT_MS = 2 * 60_000
+
+/** How often the indexing check looks at the knowledge base. */
+export const INDEX_POLL_MS = 3_000
+
+/** Join-code letters. O, I and L are left out because they look like 0, 1 and I. */
+export const JOIN_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ'
+export const JOIN_CODE_LENGTH = 5
