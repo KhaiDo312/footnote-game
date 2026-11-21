@@ -168,6 +168,7 @@ RBAC is off inside actions.
 |---|---|---|---|---|
 | `createRoom` | `{ title, text }` | `{ roomId, joinCode }` | Signed in; `text` 200–`MAX_SOURCE_CHARS` chars; caller has < `MAX_ACTIVE_ROOMS_PER_HOST` rooms not finished/failed (cost cap) | `tools.query` (code clash check) · `tools.create` (rooms, roomSecrets) · `knowledge(env).add(File, { folder: 'rooms/<roomId>' })` · `enqueueJob('prepare-room', { roomId, attempt })` |
 | `retryPrepare` | `{ roomId }` | `{ status }` | Caller is host; status is `error`. Re-uploads to knowledge if the item is in `error`, increases `prepareAttempt`, sets `preparing` | `knowledge.list/add` · `tools.update` · `enqueueJob` |
+| `endRoom` *(added Day 2)* | `{ roomId }` | `{ status }` | Caller is host. Sets `finished` from any state, so abandoned rooms stop counting toward the 3-room cap (tests use it to clean up) | `tools.get/update` |
 | `joinRoom` | `{ joinCode }` | `{ roomId, title, status }` | Code matches a room not `finished/failed`; caller is not the host (host is sent straight to the room). Idempotent (calling it twice is fine); mid-game joins allowed | `tools.query` rooms by `joinCode` · `tools.update` (add to `playerIds`) · `tools.create` players (`uniqueOn` blocks duplicates) · `tools.get('users', userId)` → name only |
 | `nextQuestion` | `{ roomId }` | `{ status }` | Caller is host; status is `lobby` or `reveal`. Moves to the next question, or to `finished` after the last | `tools.update` rooms + questions (`visibility: 'shown'`, `questionEndsAt = now + 30s`) |
 | `submitAnswer` | `{ roomId, questionId, text }` | `{ locked: true }` (no score yet) | Caller in `playerIds` and not host; status `question`; `questionId` is current; `now ≤ questionEndsAt + 2s`; text 1–80 chars | Matches against `answerKeys`; otherwise **reuses** a verdict for the same `normalized` text; otherwise `knowledge.search(hybrid)` + **AI judge** (§4.2). Then `tools.create` submissions |
@@ -404,16 +405,21 @@ src/actions/answer-actions.ts         submitAnswer
 src/jobs.ts                           'prepare-room' handler
 src/game/config.ts                    AI_MODEL and every tunable constant (see top of this file)
 src/game/join-code.ts                 makeJoinCode(), normalizeJoinCode() — pure
+src/game/normalize.ts                 normalizeAnswer(), containsAnswer() — pure (added Day 2)
+src/game/knowledge.ts                 one-folder-per-room wrapper around knowledge(env) (added Day 2)
 src/game/prompts.ts                   the two prompts + zod schemas (§4)
 src/game/ai.ts                        generateQuestions(), judgeAnswer() — the only files that call the model
 src/game/verify.ts                    fulltext verification (§3)
 src/game/scoring.ts                   normalize(), scoreQuestion() — pure
 src/game/scoring.test.ts              vitest unit tests
-src/lib/callAction.ts                 small fetch wrapper: getAuthToken + POST /api/actions/:name
+src/lib/call-action.ts                small fetch wrapper: getAuthToken + POST /api/actions/:name
 src/pages/(app)/(protected)/new.tsx           upload/paste form
 src/pages/(app)/(protected)/join/[code].tsx   calls joinRoom, then redirects to the room
 src/pages/(app)/(protected)/room/[id].tsx     one page, switches on room.status (host view vs player view)
 src/components/game/Lobby.tsx, QuestionView.tsx, RevealView.tsx, Scoreboard.tsx
+tests/api.spec.ts                     action auth/validation + "players can't start jobs" (default suite, free)
+tests/prepare-room.spec.ts            real doc → lobby, nonsense → failed (calls the AI: run on purpose)
+tests/helpers/                        sign in a test account over HTTP; read records as that user
 tests/game.spec.ts                    two-user Playwright test (host + player)
 NOTES.md                              honest notes for reviewers (what works, what doesn't, costs)
 ```

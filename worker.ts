@@ -14,7 +14,6 @@ import {
   JobRoom,
   PresenceRoom,
   RecordRoom,
-  resolveAppRole,
   workerErrorHandler,
   YjsRoom,
 } from 'deepspace/worker'
@@ -65,15 +64,20 @@ export class AppCronRoom extends CronRoom<Env> {
   }
 }
 
-/** Runs durable background work defined in src/jobs.ts. */
+/**
+ * Runs durable background work defined in src/jobs.ts.
+ *
+ * Only server code may start jobs. Jobs spend the app owner's AI credits,
+ * so no browser may enqueue, cancel, retry or even list them: authorizeWrite
+ * refuses everyone, and read access defaults to the same rule. Server actions
+ * still enqueue through `enqueueJob()`, which reaches this room over an
+ * internal stub fetch, not through the public /ws/jobs route.
+ * Guarded by the job test in tests/api.spec.ts.
+ */
 export class AppJobRoom extends JobRoom<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env, {
-      authorizeWrite: async (user) => {
-        if (user.userId.startsWith('anon-')) return false
-        const role = await resolveAppRole(env, user.userId)
-        return role === 'member' || role === 'admin'
-      },
+      authorizeWrite: () => false,
     })
   }
 

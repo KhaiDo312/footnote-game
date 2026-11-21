@@ -23,6 +23,12 @@ export const MAX_ACTIVE_ROOMS_PER_HOST = 3
 export const QUESTIONS_REQUESTED = 5
 export const MIN_PLAYABLE_QUESTIONS = 3
 
+/** A question needs at least this many verified answers to be kept. */
+export const MIN_ANSWERS_PER_QUESTION = 2
+
+/** Cap on the AI's reply length. Keeps the credits reserved per call small. */
+export const AI_MAX_OUTPUT_TOKENS = 4_000
+
 /** Seconds players get to answer each question. */
 export const QUESTION_SECONDS = 30
 

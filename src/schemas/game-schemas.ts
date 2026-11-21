@@ -143,6 +143,44 @@ export const roomSecretsSchema: CollectionSchema = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// TypeScript shapes of each collection's `record.data`, shared by the browser
+// and server code. Fields are optional because a row may be read before the
+// server has filled them in. (These are `type`s rather than `interface`s
+// because the SDK's record tools need a plain object type.)
+// ---------------------------------------------------------------------------
+
+export type RoomData = {
+  title?: string
+  joinCode?: string
+  status?: RoomStatus
+  failReason?: string
+  playerIds?: string[]
+  questionCount?: number
+  currentIndex?: number
+  currentQuestionId?: string
+  questionEndsAt?: number
+  prepareAttempt?: number
+}
+
+export type PlayerData = { roomId?: string; userId?: string; name?: string; score?: number }
+
+export type QuestionData = {
+  roomId?: string
+  index?: number
+  prompt?: string
+  visibility?: 'hidden' | 'shown'
+  results?: unknown // shape defined on Day 3 (PLAN.md §4.3)
+}
+
+export type RoomSecretsData = {
+  roomId?: string
+  sourceText?: string
+  knowledgeItemIds?: string[]
+  /** questionId → verified answers (see src/game/verify.ts AnswerKeyEntry). */
+  answerKeys?: Record<string, unknown[]>
+}
+
 export const gameSchemas: CollectionSchema[] = [
   roomsSchema,
   playersSchema,
