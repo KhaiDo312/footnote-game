@@ -3,7 +3,7 @@
 A multiplayer trivia game built from a document. Rarer answers score more points.
 Due **Tue Nov 24, 11:59 PM ET**. SDK version: `deepspace@0.44.2`, AI SDK `ai@7`.
 
-> **Status:** plan agreed (decisions in §10). Day 1 in progress.
+> **Status:** plan agreed (decisions in §10). Day 1 done and deployed (Nov 21). Next: Day 2.
 
 ## Settings in one place
 
@@ -452,7 +452,18 @@ The landing page (`src/pages/index.tsx`) gets a short pitch and a "Host a game" 
    host, judge results reused across players. I'll note real costs in NOTES.md
    from `deepspace app usage`.
 
+8. **Found on Day 1: adding `[[ai_search]]` breaks local dev.** Cloudflare's
+   Vite plugin treats it as a remote binding and asks for a
+   `CLOUDFLARE_API_TOKEN`. The SDK never reads `env.KNOWLEDGE`, so
+   `vite.config.ts` sets `remoteBindings: false`. **Consequence:**
+   `knowledge(env)` calls in local dev go through the platform with the dev
+   app identity. If that fails locally on Day 2, the knowledge part of the
+   game can only be tested on the deployed app, and I'll say so in NOTES.md.
+
 ### Other risks
+- **Browser tests can't run on this WSL machine yet.** The test browser is
+  missing system libraries (`libnspr4.so`). One-time fix, which needs your
+  password: `sudo npx playwright install-deps chromium`.
 - **Model tiers are guesses.** "Common/niche" is the model's opinion. Mitigation: it's a game, the rarity bonus (real player data) matters as much as the tier.
 - **Judge latency** (about 2–4 s per off-list answer). It runs at submit time, so reveal stays instant. A player who submits at 29 s still counts, because the check uses arrival time.
 - **Prompt injection in uploaded docs or answers.** The doc and answers are wrapped in tags, the system prompt says to ignore instructions, and the output is schema-forced JSON. The worst case is a bad question, never a leak, since the model sees nothing secret.
