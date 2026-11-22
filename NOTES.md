@@ -225,6 +225,36 @@ Both reveals then show the same result.
 
 ---
 
+## Manual verification
+
+### Sun Nov 22 — a live game with 3 accounts
+
+Played by hand on https://footnote-game.app.space by the developer, with three
+accounts in browsers (one host, two players). The document was
+`tests/fixtures/saltmere-almanac.md`, written for this test. It mixes very
+common answers (herring, The Gannet), rare ones that appear once, and traps:
+things the text mentions only to say they *don't* happen (the market "has
+never sold salmon").
+
+| Checked | Result |
+|---|---|
+| An answer the document mentions only in a negation ("never") | `rejected`, 0 points |
+| Two players giving the same answer | Same points for both |
+| An answer that isn't in the document at all | `rejected`, 0 points |
+| Common answer vs. rare or `supported` answer | Low score for the common answer, high for the rare or supported one |
+
+**This covers what the automated tests couldn't:**
+- points above 0 in a live game;
+- a live `supported` verdict for an answer not on the list;
+- the pages in a real browser.
+
+**Still not checked by hand:**
+- the indexing failure path (Retry, then "Start anyway");
+- a judge timeout;
+- two players joining at the exact same instant.
+
+---
+
 ## Agent log
 
 ### Sat Nov 21 — Day 1
