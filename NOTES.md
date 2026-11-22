@@ -97,6 +97,19 @@ docs would help anyone designing a "wait for indexing" step.
   in the output when the limit is hit would help. (Our earlier note that
   `--search` "found nothing" was probably the same cause.)
 
+### 5. No atomic "add to a list" or conditional update in action tools (gap)
+
+`ActionTools` has `create / update / remove / get / query / deleteWhere`, but
+no way to append to an array field or to update only if a value hasn't
+changed. We hit this with `rooms.playerIds`, the `collaboratorsField` that
+decides who can read a room. When two players join at the same moment, both
+read the list and both write it back, and one id can be lost, so that player
+can't see the room. Our workaround (`syncPlayerIds` in
+`src/actions/game-actions.ts`) rebuilds the list from `players` rows (which
+`uniqueOn` protects), re-reads, and retries. `nextQuestion` repeats it as a
+repair. It works, but an `append`/`addToSet` operation, or `update(...,
+{ ifMatch })`, would make it one line and actually atomic.
+
 ---
 
 ## Design decisions and tradeoffs
@@ -141,6 +154,36 @@ list.
 anyway"). We can't make the live index fail on demand. The rules are
 unit-tested in `src/game/start-rules.test.ts`, and the Start button that
 calls them is built later on Day 3.
+
+### Gameplay safety: why double clicks are harmless (Nov 22)
+
+Two rules, both enforced on the server:
+1. **The database refuses duplicates.** `players` has `uniqueOn [roomId,
+   userId]` and `submissions` has `uniqueOn [questionId, userId]`. Joining
+   twice or answering twice, even at the same instant, keeps exactly one row.
+   The second request gets "already answered" and the first answer stands.
+2. **Actions write final values, never `+=`.** A score is set to the sum of
+   that player's submission points. A double Reveal therefore can't
+   double-count, and two Next clicks at the same instant both write the same
+   next question. A Next that arrives after the first one is refused ("Already
+   moved on") because the status is no longer `lobby`/`reveal`.
+
+The live test `tests/game-flow.spec.ts` does each of these at the same moment
+on purpose.
+
+**Known small gaps**
+- **Device clock.** The countdown uses the device's clock against the server's
+  deadline. A phone whose clock is 5 s off shows a countdown 5 s off. Scoring
+  isn't affected (the server decides), but a player could see "3 s left"
+  and still be refused. Not fixed: it would mean sending server time to every
+  browser.
+- **An answer sent in the last instant before Reveal.** Reveal closes the
+  question first, then reads the answers. An answer that passed the "is it
+  still open?" check a few milliseconds before the close, but was saved after
+  the read, would be stored but not scored. The window is milliseconds; we
+  haven't seen it happen.
+- **Answers not on the list score 0, as "Couldn't check", until Day 4's AI
+  judge.** They're shown in grey, not as wrong.
 
 ---
 
@@ -279,4 +322,54 @@ anyway" after two indexing failures, and the real creation-to-lobby time.
 - The lobby page in a browser (Chromium still can't start on WSL).
 - Every AI answer passed the check this time (29/29), so this run didn't show
   the check rejecting anything. The unit tests cover rejection.
+
+### Sun Nov 22 — Day 3 (a day early): the core game
+
+**Agreed before coding:** the scoring formula with a worked example (4 players:
+Normal ×2 → 167 each, Poisson → 300, Hypergeometric → 400), the
+server-deadline timer, the double-action rules above, and judging answers
+not on the list at reveal instead of at submit. You also set two Day 4 rules:
+a judge failure or timeout scores 0 as "couldn't check", and verdicts are
+cached by question + normalized answer so a second reveal never pays twice.
+
+**What the agent did**
+- `src/game/scoring.ts`: the formula as a pure function. Its tests include
+  your worked example, aliases counting as their entry, and the `unchecked`
+  verdict.
+- `src/actions/game-actions.ts`: `joinRoom`, `nextQuestion`, `submitAnswer`,
+  `revealQuestion`. A new verdict `unchecked` was added to the schema, used
+  until the Day 4 judge (and whenever it fails).
+- Pages: `/join/:code`, a join box on `/home`, and the room page split into
+  `src/components/game/` (lobby with players, live question with countdown and
+  answer box, reveal with grouped answers, quotes and "footnotes nobody found",
+  final scoreboard).
+- Commit `0a5c508`, deployed.
+
+**Checks the agent ran**
+- Unit tests: 42 pass (8 new for scoring).
+- Free API tests: 7 pass locally and live (bad or unknown codes, answer
+  validation, host-only actions).
+- **Full game, live** (`tests/game-flow.spec.ts`, 1.7 min, passes; also passed
+  locally first):
+  - two joins at once → one player row;
+  - Start refused while indexing;
+  - two Next at once → question 1, and a third → "Already moved on";
+  - the player sees only the live question;
+  - the host can't answer;
+  - two answers at once → one stored;
+  - two Reveals at once, plus a third → identical results;
+  - an answer after the deadline + 2 s grace → "Time is up";
+  - all questions played → `finished`, with the score equal to the points,
+    counted once.
+
+**Not checked**
+- **Any points above 0, live.** Our only player account can't know the answer
+  list, so its answers were all `unchecked` (0). The listed-answer scoring path
+  is covered only by unit tests. A third test account would let the live
+  test score a real answer. To find one, it would read `missed` from one
+  question's results, but that doesn't help on the same question.
+- **The pages in a browser** (Chromium still can't start on WSL). The countdown,
+  answer box and reveal screen are type-checked and built, but nobody has
+  looked at them yet.
+- Two players joining at the exact same moment (only one player account).
 

@@ -3,7 +3,7 @@
 A multiplayer trivia game built from a document. Rarer answers score more points.
 Due **Tue Nov 24, 11:59 PM ET**. SDK version: `deepspace@0.44.2`, AI SDK `ai@7`.
 
-> **Status:** plan agreed (decisions in §10). Days 1–2 done and deployed. Day 3 started Nov 22 with the "lobby doesn't wait for the index" change (§10.8).
+> **Status:** plan agreed (decisions in §10). Days 1–3 done and deployed (Day 3 on Nov 22, a day early). Next: Day 4, starting with the AI judge (§4.2).
 
 ## Settings in one place
 
@@ -174,10 +174,10 @@ RBAC is off inside actions.
 | `retryPrepare` | `{ roomId }` | `{ status }` | Caller is host; status is `error` (writing questions failed). Increases `prepareAttempt`, sets `preparing`, re-queues `prepare-room`. Doesn't touch the index | `tools.update` · `enqueueJob` |
 | `retryIndex` *(Nov 22)* | `{ roomId }` | `{ indexStatus }` | Caller is host; `indexStatus` is `failed`; game not over. Removes the old upload, uploads again, increases `indexAttempt`, re-queues `watch-index` | `knowledge.remove/add` · `tools.update` · `enqueueJob` |
 | `endRoom` *(added Day 2)* | `{ roomId }` | `{ status }` | Caller is host. Sets `finished` from any state, so abandoned rooms stop counting toward the 3-room cap (tests use it to clean up) | `tools.get/update` |
-| `joinRoom` | `{ joinCode }` | `{ roomId, title, status }` | Code matches a room not `finished/failed`; caller is not the host (host is sent straight to the room). Idempotent (calling it twice is fine); mid-game joins allowed | `tools.query` rooms by `joinCode` · `tools.update` (add to `playerIds`) · `tools.create` players (`uniqueOn` blocks duplicates) · `tools.get('users', userId)` → name only |
+| `joinRoom` | `{ joinCode }` | `{ roomId, isHost }` | Code matches a room not `finished/failed`; the host gets `isHost: true` and is sent to the room. Idempotent: a second `players` create is refused by `uniqueOn` and treated as "already in". Mid-game joins allowed | `tools.query` rooms by `joinCode` · `tools.get('users', userId)` → name only · `tools.create` players · `syncPlayerIds`: rebuild `playerIds` from `players` rows, re-read, retry (no atomic "add to list" in the SDK; `nextQuestion` repeats it as a repair) |
 | `nextQuestion` | `{ roomId }` | `{ status }` | Caller is host; status is `lobby` or `reveal`; from the lobby, `canStart(room)` (`src/game/start-rules.ts`: index ready, or failed twice). Moves to the next question, or to `finished` after the last | `tools.update` rooms + questions (`visibility: 'shown'`, `questionEndsAt = now + 30s`) |
-| `submitAnswer` | `{ roomId, questionId, text }` | `{ locked: true }` (no score yet) | Caller in `playerIds` and not host; status `question`; `questionId` is current; `now ≤ questionEndsAt + 2s`; text 1–80 chars | Matches against `answerKeys`; otherwise **reuses** a verdict for the same `normalized` text; otherwise, if `indexStatus = ready`, `knowledge.search(hybrid)` + **AI judge** (§4.2), else `rejected` (0 points; the "Start anyway" case). Then `tools.create` submissions |
-| `revealQuestion` | `{ roomId }` | `{ results }` | Caller is host; status `question`. Idempotent | `tools.query` submissions → scoring (§5) → `tools.update` submissions, players, questions.results, rooms.status = `reveal` |
+| `submitAnswer` | `{ roomId, questionId, text }` | `{ locked: true, alreadyAnswered }` (no score yet) | Caller has a `players` row and is not the host; status `question`; `questionId` is current; `now ≤ questionEndsAt + 2s` (server clock); text 1–80 chars | Only **stores** `text` + `normalized` (`tools.create` submissions; `uniqueOn [questionId, userId]` makes a second answer "already answered"). Scoring and judging happen at reveal (§10.9) |
+| `revealQuestion` | `{ roomId }` | `{ results }` | Caller is host; status `question`, or `reveal` (returns saved results; recomputes if they're missing). Idempotent | Sets `reveal` first (closes the question) → `tools.query` submissions + answer key → **judge answers not on the list** (Day 4, §4.2) → scoring (§5) → `tools.update` each submission, then **set** each player's score to the sum of their points (never `+=`) → `questions.results` |
 
 **Background jobs** (in `src/jobs.ts`, not actions). `createRoom` starts both;
 they run independently (§10.8):
@@ -304,8 +304,17 @@ type AnswerKeyEntry = { text: string; aliases: string[]; tier: 'common'|'uncommo
 
 ### 4.2 Off-list answer judge
 
-Runs only when a player's answer is not on the list and no earlier player in
-the same question gave the same normalized answer.
+Runs **at reveal** (§10.9), once per distinct normalized answer that is not on
+the list, all in parallel. Rules agreed Nov 22 for Day 4:
+- **Verdict cache.** Each verdict is saved, keyed by `questionId` + normalized
+  answer, in a server-only collection with `uniqueOn` on those two fields. A
+  repeated reveal reuses saved verdicts, so we never pay twice or get two
+  different verdicts for one answer.
+- **Failure is not "wrong".** If the judge call fails or times out, reveal still
+  completes: those answers get verdict `unchecked` (0 points, shown as
+  "Couldn't check"). Unchecked verdicts are not cached, so a later reveal may
+  retry them.
+- **No index** (the "Start anyway" case): no judge call, verdict `unchecked`.
 
 Passages come from `kb.search(`${prompt} ${playerAnswer}`, { folder, mode: 'hybrid', limit: 4 })`.
 
@@ -367,14 +376,20 @@ type QuestionResults = {
 In `src/game/scoring.ts`. It has no I/O, so it is easy to read and test.
 
 ```
-base:   common 100 · uncommon 200 · niche 300 · supported (off-list) 300 · rejected 0
+base:   common 100 · uncommon 200 · niche 300 · supported (off-list) 300
+        rejected 0 · unchecked 0
 P = number of players who answered this question
-n = number of players who gave this same normalized answer
+n = number of players who gave this same answer
 rarityBonus = P <= 1 ? 0 : round(100 × (P − n) / (P − 1))
-points = verdict === 'rejected' ? 0 : base + rarityBonus
+points = base === 0 ? 0 : base + rarityBonus
 ```
-Examples with 5 players: a unique niche answer gets 300 + 100 = **400**. A
-common answer that all 5 gave gets 100 + 0 = **100**.
+"The same answer" = the same answer-list entry (an alias counts as its entry),
+or, for answers not on the list, the same normalized text.
+
+**Worked example (agreed Nov 22), 4 players:** "Normal" (common) ×2 →
+100 + round(100 × 2/3) = **167** each; "Poisson" (uncommon) ×1 → 200 + 100 =
+**300**; "Hypergeometric" (niche) ×1 → 300 + 100 = **400**. This is a unit test
+in `src/game/scoring.test.ts`.
 
 ---
 
@@ -416,9 +431,9 @@ wrangler.toml                         + [[ai_search]] binding = "KNOWLEDGE", ins
 worker.ts                             AppJobRoom: authorizeWrite → false (only the server enqueues)
 src/schemas.ts                        register the 5 new schemas
 src/schemas/game-schemas.ts           rooms, players, questions, submissions, roomSecrets
-src/actions/index.ts                  export { createRoom, joinRoom, nextQuestion, submitAnswer, revealQuestion }
-src/actions/room-actions.ts           createRoom, joinRoom, nextQuestion, revealQuestion
-src/actions/answer-actions.ts         submitAnswer
+src/actions/index.ts                  registers every action below
+src/actions/room-actions.ts           createRoom, retryPrepare, retryIndex, endRoom
+src/actions/game-actions.ts           joinRoom, nextQuestion, submitAnswer, revealQuestion
 src/jobs.ts                           'prepare-room' and 'watch-index' handlers
 src/game/config.ts                    AI_MODEL and every tunable constant (see top of this file)
 src/game/join-code.ts                 makeJoinCode(), normalizeJoinCode() — pure
@@ -434,11 +449,13 @@ src/lib/call-action.ts                small fetch wrapper: getAuthToken + POST /
 src/pages/(app)/(protected)/new.tsx           upload/paste form
 src/pages/(app)/(protected)/join/[code].tsx   calls joinRoom, then redirects to the room
 src/pages/(app)/(protected)/room/[id].tsx     one page, switches on room.status (host view vs player view)
-src/components/game/Lobby.tsx, QuestionView.tsx, RevealView.tsx, Scoreboard.tsx
+src/components/game/Lobby.tsx, QuestionView.tsx, RevealView.tsx, Scoreboard.tsx, ActionButton.tsx, labels.ts
+src/lib/use-seconds-left.ts           countdown to rooms.questionEndsAt (display only)
 tests/api.spec.ts                     action auth/validation + "players can't start jobs" (default suite, free)
 tests/prepare-room.spec.ts            real doc → lobby, nonsense → failed (calls the AI: run on purpose)
 tests/helpers/                        sign in a test account over HTTP; read records as that user
-tests/game.spec.ts                    two-user Playwright test (host + player)
+tests/game-flow.spec.ts               whole game over the API, host + player, incl. double clicks and a late answer (calls the AI: run on purpose)
+tests/game.spec.ts                    (Day 4, if time) the same game in two real browsers
 NOTES.md                              honest notes for reviewers (what works, what doesn't, costs)
 ```
 The landing page (`src/pages/index.tsx`) gets a short pitch and a "Host a game" button.
@@ -541,3 +558,9 @@ stopped waiting for the search index (§10.8). Done first thing on Day 3.
    judge answers not on the list, so the host's Start button waits for it
    (players join meanwhile). If indexing fails: Retry. After 2 failures, the
    host may **"Start anyway (answers not on the list will score 0)"**.
+9. **(Nov 22) Answers not on the list are judged at reveal, not at submit.**
+   One AI call per distinct answer, in parallel; players can't learn their
+   verdict early from their own submission row. Reveal takes a few seconds longer.
+10. **(Nov 22, for Day 4) Judge failures score 0 as "Couldn't check"**, not as
+   wrong, and verdicts are cached by question + normalized answer (§4.2).
+11. **(Nov 22) Scoring formula and worked example agreed** (§5).
