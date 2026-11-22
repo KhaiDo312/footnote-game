@@ -1,9 +1,9 @@
 /**
  * /room/:id: one page for the whole game; what it shows depends on room.status.
  *
- * Day 2 covers the host's side of preparation: preparing → lobby, or error
- * (with Retry) / failed (with the reason). Question, reveal and finished
- * views arrive on Day 3.
+ * So far: the host's side of preparation (preparing → lobby, or error with
+ * Retry / failed with the reason) and the lobby's Start controls. Question,
+ * reveal and finished views arrive later on Day 3.
  *
  * Everything here updates live: useQuery subscribes over the WebSocket, so
  * when the background job changes the room, this page re-renders on its own.
@@ -14,6 +14,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useAuth, useQuery } from 'deepspace'
 import { Button } from '@/components/ui'
 import { callAction } from '@/lib/call-action'
+import { startState } from '@/game/start-rules'
 import type { QuestionData, RoomData } from '@/schemas/game-schemas'
 
 export default function RoomPage() {
@@ -32,8 +33,8 @@ export default function RoomPage() {
     <Shell title={data.title}>
       {data.status === 'preparing' && (
         <div data-testid="room-preparing">
-          <p className="text-lg">Reading your document and writing questions…</p>
-          <p className="mt-2 text-sm text-muted-foreground">This usually takes 2–3 minutes. You can leave this page open.</p>
+          <p className="text-lg">Writing questions from your document…</p>
+          <p className="mt-2 text-sm text-muted-foreground">This usually takes under a minute.</p>
         </div>
       )}
 
@@ -58,7 +59,7 @@ export default function RoomPage() {
       )}
 
       {data.status === 'lobby' &&
-        (isHost ? <HostLobby roomId={room.recordId} joinCode={data.joinCode ?? ''} /> : <p>Waiting for the host to start…</p>)}
+        (isHost ? <HostLobby roomId={room.recordId} room={data} /> : <p>Waiting for the host to start…</p>)}
 
       {(data.status === 'question' || data.status === 'reveal') && <p>Game in progress. (Gameplay arrives on Day 3.)</p>}
       {data.status === 'finished' && <p>This game has ended.</p>}
@@ -72,10 +73,11 @@ export default function RoomPage() {
   )
 }
 
-/** The host's lobby: the join code to share and a preview of the questions. */
-function HostLobby({ roomId, joinCode }: { roomId: string; joinCode: string }) {
+/** The host's lobby: the join code to share, the Start button, and a preview of the questions. */
+function HostLobby({ roomId, room }: { roomId: string; room: RoomData }) {
   // The host owns these rows, so they can read them while still hidden.
   const { records } = useQuery<QuestionData>('questions', { where: { roomId }, orderBy: 'index', orderDir: 'asc' })
+  const joinCode = room.joinCode ?? ''
   const joinUrl = `${window.location.origin}/join/${joinCode}`
 
   return (
@@ -88,6 +90,8 @@ function HostLobby({ roomId, joinCode }: { roomId: string; joinCode: string }) {
         Players open <span className="font-mono">{joinUrl}</span>
       </p>
 
+      <StartControls roomId={roomId} room={room} />
+
       <h2 className="mt-10 mb-3 text-lg font-semibold">Questions ({records.length})</h2>
       <p className="mb-3 text-xs text-muted-foreground">Only you can see these until each one goes live.</p>
       <ol className="list-decimal space-y-2 pl-6" data-testid="host-questions">
@@ -99,9 +103,43 @@ function HostLobby({ roomId, joinCode }: { roomId: string; joinCode: string }) {
   )
 }
 
+/**
+ * The Start button, which waits for the search index (needed to judge answers
+ * that are not on the list). See src/game/start-rules.ts for the four states.
+ */
+function StartControls({ roomId, room }: { roomId: string; room: RoomData }) {
+  const state = startState(room)
+  return (
+    <div className="mt-8" data-testid="start-controls" data-state={state}>
+      {state === 'waiting' && (
+        <>
+          <Button disabled>Start game</Button>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Getting the answer checker ready (about 2 minutes). Players can join meanwhile.
+          </p>
+        </>
+      )}
+      {state === 'ready' && <ActionButton action="nextQuestion" roomId={roomId} label="Start game" />}
+      {(state === 'retry' || state === 'start-anyway') && (
+        <>
+          <p className="text-sm text-destructive">The answer checker failed to get ready.</p>
+          <ActionButton action="retryIndex" roomId={roomId} label="Retry" variant="secondary" />
+        </>
+      )}
+      {state === 'start-anyway' && (
+        <ActionButton
+          action="nextQuestion"
+          roomId={roomId}
+          label="Start anyway (answers not on the list will score 0)"
+        />
+      )}
+    </div>
+  )
+}
+
 /** A button that calls a host action for this room and shows any error. */
 function ActionButton(props: {
-  action: 'retryPrepare' | 'endRoom'
+  action: 'retryPrepare' | 'retryIndex' | 'nextQuestion' | 'endRoom'
   roomId: string
   label: string
   variant?: 'secondary'

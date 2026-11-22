@@ -1,9 +1,14 @@
 /**
- * Room server actions: createRoom and retryPrepare (PLAN.md §2).
+ * Room server actions: createRoom, retryPrepare, retryIndex, endRoom (PLAN.md §2).
  *
  * Server actions run as the app with permission checks (RBAC) switched off,
  * so every check here (sign-in, host-only, limits) is done by hand.
  * Each one is exposed at POST /api/actions/<name>.
+ *
+ * Creating a room starts two independent background jobs (src/jobs.ts):
+ *   prepare-room  AI writes questions, answers are checked → lobby (seconds)
+ *   watch-index   waits for the search index (~2 min), needed only to judge
+ *                 answers that are not on the list, so the lobby doesn't wait
  */
 
 import { enqueueJob, KnowledgeError, type ActionHandler, type ActionResult, type ActionTools } from 'deepspace/worker'
@@ -13,9 +18,12 @@ import { makeJoinCode } from '../game/join-code'
 import { removeDocuments, uploadDocument } from '../game/knowledge'
 import type { RoomData, RoomSecretsData } from '../schemas/game-schemas'
 
-/** The job type that indexes, generates and verifies questions (src/jobs.ts). */
+/** Writes questions from the document text and opens the lobby. */
 export const PREPARE_ROOM_JOB = 'prepare-room'
-export type PrepareRoomPayload = { roomId: string; attempt: number }
+/** Waits for the room's search index and records whether it is ready. */
+export const WATCH_INDEX_JOB = 'watch-index'
+/** Both jobs take the room and an attempt number, so an outdated job can stop. */
+export type RoomJobPayload = { roomId: string; attempt: number }
 
 // ---------------------------------------------------------------------------
 // createRoom: { title, text } → { roomId, joinCode }
@@ -53,14 +61,17 @@ export const createRoom: ActionHandler<Env> = async ({ userId, params, tools, en
   })
   if (!secrets.success) return secrets
 
-  const started = await uploadAndStartPreparing(env, tools, roomId, secrets.data.recordId, text, 1, userId)
-  if (!started.success) return started
+  // Questions first (the host is waiting on these), then the search index.
+  await startJob(env, PREPARE_ROOM_JOB, roomId, 1, userId)
+  await startIndexing(env, tools, roomId, secrets.data.recordId, text, { attempt: 1, failures: 0 }, userId)
 
   return { success: true, data: { roomId, joinCode } }
 }
 
 // ---------------------------------------------------------------------------
-// retryPrepare: { roomId } → { status }. Only from the 'error' state.
+// retryPrepare: { roomId } → { status }. Only from the 'error' state, which
+// now means writing questions failed (e.g. the AI call). The index is
+// separate and is not touched.
 // ---------------------------------------------------------------------------
 
 export const retryPrepare: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
@@ -70,24 +81,43 @@ export const retryPrepare: ActionHandler<Env> = async ({ userId, params, tools, 
   if (room.data.record.createdBy !== userId) return fail('Only the host can retry.')
   if (room.data.record.data.status !== 'error') return fail('This room is not in an error state.')
 
+  const attempt = (room.data.record.data.prepareAttempt ?? 1) + 1
+  const marked = await tools.update<RoomData>('rooms', roomId, { status: 'preparing', failReason: '', prepareAttempt: attempt })
+  if (!marked.success) return marked
+  await startJob(env, PREPARE_ROOM_JOB, roomId, attempt, userId)
+  return { success: true, data: { status: 'preparing' } }
+}
+
+// ---------------------------------------------------------------------------
+// retryIndex: { roomId } → { indexStatus }. Only after indexing failed.
+// Removes the old upload and uploads the document again.
+// ---------------------------------------------------------------------------
+
+export const retryIndex: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
+  const roomId = String(params.roomId ?? '')
+  const room = await tools.get<RoomData>('rooms', roomId)
+  if (!room.success) return fail('Room not found.')
+  if (room.data.record.createdBy !== userId) return fail('Only the host can retry.')
+  const data = room.data.record.data
+  if (data.indexStatus !== 'failed') return fail('The answer checker has not failed.')
+  if (data.status === 'finished' || data.status === 'failed') return fail('This game is over.')
+
   const secrets = await getSecrets(tools, roomId)
   if (!secrets) return fail('Room data is missing. Please create a new game.')
 
-  // Start from a clean slate: remove the old upload, then upload again.
-  // This covers both "indexing failed" and "indexing took too long".
   await removeDocuments(env, secrets.data.knowledgeItemIds ?? [])
-  const attempt = (room.data.record.data.prepareAttempt ?? 1) + 1
-  const started = await uploadAndStartPreparing(
+  const attempt = (data.indexAttempt ?? 1) + 1
+  const started = await startIndexing(
     env,
     tools,
     roomId,
     secrets.recordId,
     secrets.data.sourceText ?? '',
-    attempt,
+    { attempt, failures: data.indexFailures ?? 0 },
     userId,
   )
   if (!started.success) return started
-  return { success: true, data: { status: 'preparing' } }
+  return { success: true, data: { indexStatus: 'indexing' } }
 }
 
 // ---------------------------------------------------------------------------
@@ -111,45 +141,44 @@ export const endRoom: ActionHandler<Env> = async ({ userId, params, tools }) => 
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Queues one of the room jobs. `enqueueJob` reaches the job room server-side. */
+async function startJob(env: Env, type: string, roomId: string, attempt: number, userId: string) {
+  const payload: RoomJobPayload = { roomId, attempt }
+  await enqueueJob(env.JOB_ROOMS, `app:${env.DEEPSPACE_APP_ID}`, type, payload, { enqueuedBy: userId })
+}
+
 /**
- * Uploads the text to the room's knowledge folder and queues the prepare-room
- * job. If the upload fails, the room goes to 'error' (with a Retry button)
- * instead of failing the whole request, so the host lands on the room page.
+ * Uploads the text to the room's knowledge folder and queues watch-index.
+ * If the upload itself fails, that counts as a failed indexing attempt: the
+ * game can still be prepared, and the host sees Retry in the lobby.
  */
-async function uploadAndStartPreparing(
+async function startIndexing(
   env: Env,
   tools: ActionTools,
   roomId: string,
   secretsId: string,
   text: string,
-  attempt: number,
+  { attempt, failures }: { attempt: number; failures: number },
   userId: string,
 ): Promise<ActionResult<unknown>> {
   let itemIds: string[]
   try {
     itemIds = await uploadDocument(env, roomId, text)
   } catch (error) {
-    console.error('[createRoom] knowledge upload failed', error instanceof KnowledgeError ? error.code : error)
+    console.error('[index] knowledge upload failed', error instanceof KnowledgeError ? error.code : error)
     return tools.update<RoomData>('rooms', roomId, {
-      status: 'error',
-      failReason: 'Could not upload the document for indexing. Press Retry.',
-      prepareAttempt: attempt,
+      indexStatus: 'failed',
+      indexAttempt: attempt,
+      indexFailures: failures + 1,
     })
   }
 
   const saved = await tools.update<RoomSecretsData>('roomSecrets', secretsId, { knowledgeItemIds: itemIds })
   if (!saved.success) return saved
-  const marked = await tools.update<RoomData>('rooms', roomId, {
-    status: 'preparing',
-    failReason: '',
-    prepareAttempt: attempt,
-  })
+  const marked = await tools.update<RoomData>('rooms', roomId, { indexStatus: 'indexing', indexAttempt: attempt })
   if (!marked.success) return marked
 
-  const payload: PrepareRoomPayload = { roomId, attempt }
-  await enqueueJob(env.JOB_ROOMS, `app:${env.DEEPSPACE_APP_ID}`, PREPARE_ROOM_JOB, payload, {
-    enqueuedBy: userId,
-  })
+  await startJob(env, WATCH_INDEX_JOB, roomId, attempt, userId)
   return { success: true, data: null }
 }
 
@@ -175,6 +204,9 @@ async function createRoomWithUniqueCode(
       currentQuestionId: '',
       questionEndsAt: 0,
       prepareAttempt: 1,
+      indexStatus: 'indexing',
+      indexAttempt: 1,
+      indexFailures: 0,
     })
     if (created.success) return { success: true, data: { roomId: created.data.recordId, joinCode } }
     if (!created.error.includes('Duplicate')) return created

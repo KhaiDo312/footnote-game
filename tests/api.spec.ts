@@ -42,9 +42,9 @@ test.describe('Room actions', () => {
     expect(long.error).toContain('too long')
   })
 
-  test('retryPrepare and endRoom refuse someone who is not the host', async ({ request, baseURL }) => {
+  test('retryPrepare, retryIndex and endRoom refuse someone who is not the host', async ({ request, baseURL }) => {
     const { token } = await signInAndGetToken(request, baseURL!, 'Footnote Player A')
-    for (const name of ['retryPrepare', 'endRoom']) {
+    for (const name of ['retryPrepare', 'retryIndex', 'endRoom']) {
       const result = await callActionAs(request, token, name, { roomId: 'no-such-room' })
       expect(result).toMatchObject({ success: false, error: 'Room not found.' })
     }
@@ -53,7 +53,7 @@ test.describe('Room actions', () => {
 
 // ---------------------------------------------------------------------------
 // Security: a normal signed-in player must NOT be able to start a background
-// job. Only server code (createRoom / retryPrepare, via enqueueJob) may,
+// job. Only server code (the room actions, via enqueueJob) may,
 // because jobs spend the app owner's AI credits. See AppJobRoom in worker.ts.
 // ---------------------------------------------------------------------------
 

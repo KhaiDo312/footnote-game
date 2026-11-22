@@ -11,15 +11,23 @@ import type { CollectionSchema, RolePermissions } from 'deepspace/schema'
 
 /** Room states. PLAN.md §6 has the diagram. */
 export const ROOM_STATUSES = [
-  'preparing', // indexing the document + generating questions
+  'preparing', // the AI is writing questions; answers are being checked
   'lobby', // questions ready, waiting for the host to start
   'question', // a question is live, timer running
   'reveal', // showing results for the current question
   'finished', // final scoreboard
   'failed', // document can't make a game (final; host makes a new room)
-  'error', // technical problem (e.g. indexing took > 2 min); host can Retry
+  'error', // technical problem (e.g. the AI call failed); host can Retry
 ] as const
 export type RoomStatus = (typeof ROOM_STATUSES)[number]
+
+/**
+ * The search index, tracked separately from the room status because the lobby
+ * opens before indexing finishes. It is only needed to judge answers that are
+ * not on the list, so the host can start once it is 'ready'.
+ */
+export const INDEX_STATUSES = ['indexing', 'ready', 'failed'] as const
+export type IndexStatus = (typeof INDEX_STATUSES)[number]
 
 export const ANSWER_TIERS = ['common', 'uncommon', 'niche', 'none'] as const
 export type AnswerTier = (typeof ANSWER_TIERS)[number]
@@ -51,6 +59,9 @@ export const roomsSchema: CollectionSchema = {
     { name: 'currentQuestionId', storage: 'text', interpretation: 'plain' },
     { name: 'questionEndsAt', storage: 'number', interpretation: 'plain' },
     { name: 'prepareAttempt', storage: 'number', interpretation: 'plain' },
+    { name: 'indexStatus', storage: 'text', interpretation: { kind: 'select', options: [...INDEX_STATUSES] } },
+    { name: 'indexAttempt', storage: 'number', interpretation: 'plain' },
+    { name: 'indexFailures', storage: 'number', interpretation: 'plain' },
   ],
   uniqueOn: ['joinCode'],
   collaboratorsField: 'playerIds',
@@ -161,6 +172,11 @@ export type RoomData = {
   currentQuestionId?: string
   questionEndsAt?: number
   prepareAttempt?: number
+  indexStatus?: IndexStatus
+  /** Goes up on each indexing Retry, so an older indexing job knows to stop. */
+  indexAttempt?: number
+  /** How many indexing attempts failed. At 2, the host may start anyway. */
+  indexFailures?: number
 }
 
 export type PlayerData = { roomId?: string; userId?: string; name?: string; score?: number }

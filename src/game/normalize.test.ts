@@ -37,6 +37,13 @@ describe('containsAnswer', () => {
     expect(containsAnswer('cuminseed', 'cumin')).toBe(false)
   })
 
+  it('does not match "cat" inside "category", after normalizing both sides', () => {
+    expect(containsAnswer('Pick a CATEGORY.', 'cat')).toBe(false)
+    expect(containsAnswer('Pick a category.', 'The Cat!')).toBe(false)
+    // ...but does match the same word on its own, whatever the case and punctuation.
+    expect(containsAnswer('Pick a category: CAT, dog.', 'the cat')).toBe(true)
+  })
+
   it('matches when the answer has an article the text lacks', () => {
     expect(containsAnswer(text, 'the market')).toBe(true)
   })

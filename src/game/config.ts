@@ -38,9 +38,14 @@ export const LATE_ANSWER_GRACE_MS = 2_000
 /** Longest answer a player may type. */
 export const MAX_ANSWER_CHARS = 80
 
-/** The indexing check gives up after this long and sets the room to "error".
+/** The search index (used only to judge answers that aren't on the list) is
+ *  marked failed after this long; the host can Retry from the lobby.
  *  Measured on the live app (Nov 21): 96 s for a 0.6 KB doc, >120 s for 3 KB. */
 export const INDEX_TIMEOUT_MS = 5 * 60_000
+
+/** After this many failed indexing attempts, the host may start without the
+ *  index. Answers not on the list then score 0 (NOTES.md has the tradeoff). */
+export const INDEX_FAILURES_BEFORE_START_ANYWAY = 2
 
 /** How often the indexing check looks at the knowledge base. */
 export const INDEX_POLL_MS = 3_000
