@@ -431,7 +431,7 @@ simultaneous reveals (both tradeoffs are above).
 - New server-only collection `verdicts` (`uniqueOn [questionId, normalized]`).
 - `revealQuestion` calls the judge and logs one line per question:
   `[judge] room=… q=… 4522ms {"<answer>":{"from":"judged","aiSaidYes":false}}`.
-- Commit, deployed.
+- Commit `bd9517d`, deployed.
 
 **Checks the agent ran**
 - **Unit tests:** 59 pass, 17 of them new for the judge:
