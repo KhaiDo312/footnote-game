@@ -11,13 +11,16 @@
 
 import type { ActionHandler, ActionResult, ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
-import { LATE_ANSWER_GRACE_MS, MAX_ANSWER_CHARS, QUESTION_SECONDS } from '../game/config'
+import { askJudge } from '../game/ai'
+import { JUDGE_PASSAGES, LATE_ANSWER_GRACE_MS, MAX_ANSWER_CHARS, QUESTION_SECONDS } from '../game/config'
+import { judgeOffList, type FinalVerdict, type JudgeDeps } from '../game/judge'
 import { normalizeJoinCode } from '../game/join-code'
 import { normalizeAnswer } from '../game/normalize'
-import { scoreQuestion, type OffListVerdict, type QuestionResults } from '../game/scoring'
+import { searchRoom } from '../game/knowledge'
+import { matchAnswerKey, scoreQuestion, type QuestionResults } from '../game/scoring'
 import { canStart } from '../game/start-rules'
 import type { AnswerKeyEntry } from '../game/verify'
-import type { PlayerData, QuestionData, RoomData, SubmissionData } from '../schemas/game-schemas'
+import type { PlayerData, QuestionData, RoomData, SubmissionData, VerdictData } from '../schemas/game-schemas'
 import { getSecrets } from './room-actions'
 
 // ---------------------------------------------------------------------------
@@ -136,7 +139,7 @@ export const submitAnswer: ActionHandler<Env> = async ({ userId, params, tools }
 // revealQuestion: { roomId } → { results }
 // ---------------------------------------------------------------------------
 
-export const revealQuestion: ActionHandler<Env> = async ({ userId, params, tools }) => {
+export const revealQuestion: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
   const loaded = await loadAsHost(tools, userId, params.roomId)
   if (!loaded.success) return loaded
   const { roomId, room } = loaded.data
@@ -166,16 +169,26 @@ export const revealQuestion: ActionHandler<Env> = async ({ userId, params, tools
   if (!players.success) return players
   const answerKey = (secrets?.data.answerKeys?.[questionId] ?? []) as AnswerKeyEntry[]
 
-  // Day 4: the AI judge fills this in for answers not on the list. Until
-  // then (and whenever the judge can't run) they are scored 'unchecked'.
-  const offList: Record<string, OffListVerdict> = {}
-
   const names = Object.fromEntries(players.data.records.map((p) => [p.data.userId ?? '', p.data.name ?? 'Player']))
   const inputs = subs.data.records.map((s) => ({
     userId: s.data.userId ?? '',
     text: s.data.text ?? '',
     normalized: s.data.normalized ?? '',
   }))
+
+  // The AI judge, for answers not on the list (src/game/judge.ts). It never
+  // throws: anything it can't check scores 0 as "Couldn't check".
+  const prompt = question.data.record.data.prompt ?? ''
+  const started = Date.now()
+  const { verdicts: offList, log } = await judgeOffList(
+    prompt,
+    inputs.filter((s) => matchAnswerKey(s.normalized, answerKey) < 0),
+    judgeDeps(env, tools, roomId, questionId),
+    { indexReady: (room.indexStatus ?? 'ready') === 'ready' }, // undefined: rooms from before Nov 22
+  )
+  if (Object.keys(log).length > 0) {
+    console.log(`[judge] room=${roomId} q=${questionId} ${Date.now() - started}ms ${JSON.stringify(log)}`)
+  }
   const { scored, results } = scoreQuestion(inputs, answerKey, offList, names)
 
   // Save each player's verdict and points on their submission.
@@ -226,6 +239,31 @@ async function loadAsHost(
   if (!got.success) return fail('Room not found.')
   if (got.data.record.createdBy !== userId) return fail('Only the host can do that.')
   return { success: true, data: { roomId, room: got.data.record.data } }
+}
+
+/** The judge's search, AI and verdict storage for one question. */
+function judgeDeps(env: Env, tools: ActionTools, roomId: string, questionId: string): JudgeDeps {
+  return {
+    search: (query) => searchRoom(env, roomId, query, JUDGE_PASSAGES),
+    ask: (prompt, signal) => askJudge(env, prompt, signal),
+    loadSaved: async () => {
+      const found = await tools.query<VerdictData>('verdicts', { where: { questionId }, limit: 500 })
+      if (!found.success) throw new Error(found.error)
+      return Object.fromEntries(found.data.records.map((r) => [r.data.normalized ?? '', toFinal(r.data)]))
+    },
+    save: async (normalized, { verdict, quote }) => {
+      const created = await tools.create<VerdictData>('verdicts', { roomId, questionId, normalized, verdict, quote })
+      if (created.success || !created.error.includes('Duplicate')) return { verdict, quote }
+      // Another reveal saved first (uniqueOn): use theirs, so both agree.
+      const theirs = await tools.query<VerdictData>('verdicts', { where: { questionId, normalized }, limit: 1 })
+      const record = theirs.success ? theirs.data.records[0] : undefined
+      return record ? toFinal(record.data) : { verdict, quote }
+    },
+  }
+}
+
+function toFinal(data: VerdictData): FinalVerdict {
+  return { verdict: data.verdict === 'supported' ? 'supported' : 'rejected', quote: data.quote ?? '' }
 }
 
 /**

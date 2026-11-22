@@ -38,11 +38,15 @@ export async function indexingState(env: Env, roomId: string): Promise<'ready' |
   return [...statuses].every((s) => s === 'completed') ? 'ready' : 'waiting'
 }
 
-/** Fulltext search inside one room's folder. Returns the passage texts. */
-export async function searchRoom(env: Env, roomId: string, query: string, limit = 3): Promise<string[]> {
+/**
+ * Search inside one room's folder. Returns the passage texts. 'hybrid' mixes
+ * keyword and meaning-based matching, so "Poisson" also finds a passage that
+ * says "the Poisson distribution".
+ */
+export async function searchRoom(env: Env, roomId: string, query: string, limit = 5): Promise<string[]> {
   const result = await knowledge(env).search(query.slice(0, 4_000), {
     folder: roomFolder(roomId),
-    mode: 'fulltext',
+    mode: 'hybrid',
     limit,
   })
   return result.chunks.map((chunk) => chunk.text)

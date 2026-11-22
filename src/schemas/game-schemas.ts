@@ -35,10 +35,10 @@ export type AnswerTier = (typeof ANSWER_TIERS)[number]
 
 /**
  * listed     on the answer list
- * supported  not on the list, but the AI judge found it in the document (Day 4)
+ * supported  not on the list, but the AI judge found it in the document
  * rejected   not on the list, and the judge says the document doesn't support it
  * unchecked  not on the list, and we couldn't check it (judge failed or timed
- *            out, no search index, or before Day 4). 0 points, shown as
+ *            out, or no search index). 0 points, shown as
  *            "couldn't check" rather than as wrong.
  */
 export const VERDICTS = ['listed', 'supported', 'rejected', 'unchecked'] as const
@@ -163,6 +163,29 @@ export const roomSecretsSchema: CollectionSchema = {
   },
 }
 
+/**
+ * Server-only: the AI judge's verdicts on answers not on the list, one per
+ * question + normalized answer, so a second reveal reuses them instead of
+ * paying again or getting a different verdict. Only definite verdicts are
+ * saved ('unchecked' is not, so a later reveal can try again).
+ */
+export const verdictsSchema: CollectionSchema = {
+  name: 'verdicts',
+  columns: [
+    { name: 'roomId', storage: 'text', interpretation: 'plain', required: true },
+    { name: 'questionId', storage: 'text', interpretation: 'plain', required: true },
+    { name: 'normalized', storage: 'text', interpretation: 'plain', required: true },
+    { name: 'verdict', storage: 'text', interpretation: { kind: 'select', options: ['supported', 'rejected'] } },
+    { name: 'quote', storage: 'text', interpretation: 'plain' },
+  ],
+  uniqueOn: ['questionId', 'normalized'], // two reveals at once: the first save wins
+  permissions: {
+    viewer: noAccess,
+    member: noAccess,
+    admin: adminAll,
+  },
+}
+
 // ---------------------------------------------------------------------------
 // TypeScript shapes of each collection's `record.data`, shared by the browser
 // and server code. Fields are optional because a row may be read before the
@@ -220,10 +243,19 @@ export type RoomSecretsData = {
   answerKeys?: Record<string, unknown[]>
 }
 
+export type VerdictData = {
+  roomId?: string
+  questionId?: string
+  normalized?: string
+  verdict?: 'supported' | 'rejected'
+  quote?: string
+}
+
 export const gameSchemas: CollectionSchema[] = [
   roomsSchema,
   playersSchema,
   questionsSchema,
   submissionsSchema,
   roomSecretsSchema,
+  verdictsSchema,
 ]

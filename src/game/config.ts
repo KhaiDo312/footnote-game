@@ -29,6 +29,15 @@ export const MIN_ANSWERS_PER_QUESTION = 2
 /** Cap on the AI's reply length. Keeps the credits reserved per call small. */
 export const AI_MAX_OUTPUT_TOKENS = 4_000
 
+/** Answer judging at reveal (PLAN.md §4.2). */
+export const JUDGE_MAX_OUTPUT_TOKENS = 300
+/** Search + AI for one answer must finish in this time, or it shows "Couldn't check". */
+export const JUDGE_TIMEOUT_MS = 10_000
+/** Passages from the search index shown to the judge. */
+export const JUDGE_PASSAGES = 5
+/** A quote must be at least this many words, so "the" can't "prove" anything. */
+export const JUDGE_MIN_QUOTE_WORDS = 4
+
 /** Scoring (PLAN.md §5): base points by tier, plus up to RARITY_BONUS_MAX for rare answers. */
 export const TIER_POINTS = { common: 100, uncommon: 200, niche: 300 } as const
 /** An answer not on the list that the AI judge found in the document. */
