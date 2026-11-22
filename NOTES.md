@@ -90,8 +90,57 @@ docs would help anyone designing a "wait for indexing" step.
   safe only because that route is registered as GET-only. We confirmed this on
   the live app: a POST returns 404. Anyone who changes the route to `app.all`
   would open it up; a comment in the scaffold would help.
-- **`deepspace logs --search`** found nothing for text that `--since <time>`
-  plainly showed. We may be misusing it; we used time windows instead.
+- **`deepspace logs` returns 100 events by default.** On Day 2 our job's
+  timing lines seemed to be missing. On Nov 22 we found they were there, past
+  the default limit: a busy app writes a WebSocket open/close event per
+  connection. `--limit 500` and short `--since` windows found them. A hint
+  in the output when the limit is hit would help. (Our earlier note that
+  `--search` "found nothing" was probably the same cause.)
+
+---
+
+## Design decisions and tradeoffs
+
+### The lobby doesn't wait for the search index (Nov 22)
+
+**Before:** the `prepare-room` job waited for the knowledge index (~100–125 s)
+before asking the AI for questions, because answers were checked by
+searching the index. The host stared at "preparing" for about 2 minutes.
+
+**Now:** the AI writes questions from the document text, which is already
+stored in `roomSecrets`. Answers are checked with a plain whole-word text
+match against that text (`containsAnswer`: after normalizing both sides,
+"cat" does not match "category"). A separate `watch-index` job waits for
+the index. **Measured on the live app: Create → lobby in 12.8 s** (12 s of
+it is the AI call). The index was ready at 125 s. The host's Start button
+waits for it, and players can join in the meantime.
+
+Why it's safe: the search only fetched candidate passages, and the yes/no was
+always our own text check. Checking the full text is stricter, because
+`limit: 3` could miss a real answer. The original brief says "check each answer
+appears in the doc (fulltext search)". We still meet the goal (answers must
+appear in the document), but we don't use search for that step. The index is
+still used for the part that needs it: judging answers that are not on the
+list.
+
+**Tradeoff: "Start anyway".** If indexing fails, the host sees Retry. After
+**two** failed attempts (`INDEX_FAILURES_BEFORE_START_ANYWAY`), they also see
+**"Start anyway (answers not on the list will score 0)"**.
+- **What it costs:** without the index there are no passages to show the AI
+  judge, so every answer not on the list gets `rejected` (0 points), even if
+  the document supports it. That's unfair to players who find a real but
+  unlisted answer, and it weakens the "rare answers win" idea.
+- **Why we allow it anyway:** the host has a room of people waiting. A
+  slightly harsher game beats no game, and the button says exactly what
+  happens.
+- **What we don't do:** send the whole document to the AI judge instead.
+  That would work without the index, but it costs up to ~12k input tokens
+  per judged answer, which is too expensive when the app owner pays.
+
+**Not tested end to end:** the indexing failure path (Retry, then "Start
+anyway"). We can't make the live index fail on demand. The rules are
+unit-tested in `src/game/start-rules.test.ts`, and the Start button that
+calls them is built later on Day 3.
 
 ---
 
@@ -189,3 +238,45 @@ docs would help anyone designing a "wait for indexing" step.
 - For the passing live run, the job's "AI took / verified N answers" log lines
   never showed up in `deepspace logs`, so we have no live figure for how many
   AI answers verification threw away.
+
+### Sun Nov 22 — Day 3, first task: the lobby doesn't wait for the index
+
+**What you asked for:** the change described in "Design decisions" above,
+whole-word matching with a test for "cat"/"category", Retry and then "Start
+anyway" after two indexing failures, and the real creation-to-lobby time.
+
+**What the agent did**
+- `verify.ts` checks answers against the document's paragraphs instead of
+  search results. It no longer waits on the index, and it's simpler to test.
+- Split the job: `prepare-room` (AI → check → lobby) and `watch-index` (waits
+  for the index, sets `rooms.indexStatus`). New room fields `indexStatus`,
+  `indexAttempt`, `indexFailures`. New action `retryIndex`. `retryPrepare`
+  now only re-runs question writing.
+- `src/game/start-rules.ts`: one rule for what the Start area shows
+  (`waiting` / `ready` / `retry` / `start-anyway`). The lobby page uses it, and
+  `nextQuestion` (later on Day 3) will use it on the server.
+- The lobby shows the Start controls. **The Start button calls `nextQuestion`,
+  which doesn't exist yet**, so it answers "Action not found" until later
+  on Day 3.
+- `prepare-room` logs room creation → lobby time, AI time, and how many
+  questions/answers survived checking.
+- Commit `8cedbc0`, deployed. It also contains a 4-line comment removal in
+  `src/pages/(app)/_layout.tsx` that the agent didn't make (it was already
+  in the working tree). It doesn't change behaviour.
+
+**Checks the agent ran**
+- Unit tests: 34 pass. The new "cat"/"category" test was checked by breaking
+  whole-word matching on purpose: it failed, and passed again once restored.
+- Local API tests: 5 pass. The browser test can't start Chromium on WSL.
+- **Live app** (7 tests pass): Create → lobby **12.8 s** (server log: 12 s,
+  AI 12 s, 5/5 questions and 29/29 answers kept). The index was ready
+  **125 s** after Create (112 s after the job first checked). Permissions as
+  before. `retryIndex` refuses non-hosts, and refuses while indexing hasn't
+  failed. Nonsense document → `failed` in 3.8 s.
+
+**Not checked**
+- The indexing failure path, live (see "Design decisions").
+- The lobby page in a browser (Chromium still can't start on WSL).
+- Every AI answer passed the check this time (29/29), so this run didn't show
+  the check rejecting anything. The unit tests cover rejection.
+

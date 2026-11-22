@@ -3,7 +3,7 @@
 A multiplayer trivia game built from a document. Rarer answers score more points.
 Due **Tue Nov 24, 11:59 PM ET**. SDK version: `deepspace@0.44.2`, AI SDK `ai@7`.
 
-> **Status:** plan agreed (decisions in §10). Day 1 done and deployed (Nov 21). Next: Day 2.
+> **Status:** plan agreed (decisions in §10). Days 1–2 done and deployed. Day 3 started Nov 22 with the "lobby doesn't wait for the index" change (§10.8).
 
 ## Settings in one place
 
@@ -16,7 +16,8 @@ export const MAX_SOURCE_CHARS = 50_000       // upload/paste cap
 export const MAX_ACTIVE_ROOMS_PER_HOST = 3   // rooms not finished/failed
 export const QUESTION_SECONDS = 30
 export const LATE_ANSWER_GRACE_MS = 2_000
-export const INDEX_TIMEOUT_MS = 5 * 60_000   // indexing check gives up after 5 minutes (was 2; see §10.6)
+export const INDEX_TIMEOUT_MS = 5 * 60_000   // search index marked failed after 5 minutes (see §10.6, §10.8)
+export const INDEX_FAILURES_BEFORE_START_ANYWAY = 2 // then the host may "Start anyway"
 export const INDEX_POLL_MS = 3_000
 export const JOIN_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ' // no O, I, L
 export const JOIN_CODE_LENGTH = 5
@@ -70,6 +71,9 @@ see emails.
 | `status` | text (select) | `preparing \| lobby \| question \| reveal \| finished \| failed \| error` |
 | `failReason` | text | Shown when `status = failed` (bad content, final) or `error` (technical, can retry) |
 | `prepareAttempt` | number | Increases on each retry, so an old job can tell it has been replaced |
+| `indexStatus` *(Nov 22)* | text (select) | `indexing \| ready \| failed`: the search index, tracked apart from `status` because the lobby opens before it is ready (§10.8) |
+| `indexAttempt` *(Nov 22)* | number | Increases on each indexing Retry, so an old `watch-index` job stops |
+| `indexFailures` *(Nov 22)* | number | Failed indexing attempts. At 2, the host may "Start anyway" |
 | `playerIds` | json `string[]` | `collaboratorsField`, the user ids that joined |
 | `questionCount` | number | Usable questions after verification (3–5) |
 | `currentIndex` | number | `-1` in lobby, then 0…n-1 |
@@ -166,45 +170,55 @@ RBAC is off inside actions.
 
 | Action | Input | Output | Checks | Built-ins used |
 |---|---|---|---|---|
-| `createRoom` | `{ title, text }` | `{ roomId, joinCode }` | Signed in; `text` 200–`MAX_SOURCE_CHARS` chars; caller has < `MAX_ACTIVE_ROOMS_PER_HOST` rooms not finished/failed (cost cap) | `tools.query` (code clash check) · `tools.create` (rooms, roomSecrets) · `knowledge(env).add(File, { folder: 'rooms/<roomId>' })` · `enqueueJob('prepare-room', { roomId, attempt })` |
-| `retryPrepare` | `{ roomId }` | `{ status }` | Caller is host; status is `error`. Re-uploads to knowledge if the item is in `error`, increases `prepareAttempt`, sets `preparing` | `knowledge.list/add` · `tools.update` · `enqueueJob` |
+| `createRoom` | `{ title, text }` | `{ roomId, joinCode }` | Signed in; `text` 200–`MAX_SOURCE_CHARS` chars; caller has < `MAX_ACTIVE_ROOMS_PER_HOST` rooms not finished/failed (cost cap) | `tools.query` (cap) · `tools.create` (rooms, roomSecrets) · `enqueueJob('prepare-room')` · `knowledge(env).add(File, { folder: 'rooms/<roomId>' })` · `enqueueJob('watch-index')`. A failed upload counts as a failed indexing attempt, not a failed request |
+| `retryPrepare` | `{ roomId }` | `{ status }` | Caller is host; status is `error` (writing questions failed). Increases `prepareAttempt`, sets `preparing`, re-queues `prepare-room`. Doesn't touch the index | `tools.update` · `enqueueJob` |
+| `retryIndex` *(Nov 22)* | `{ roomId }` | `{ indexStatus }` | Caller is host; `indexStatus` is `failed`; game not over. Removes the old upload, uploads again, increases `indexAttempt`, re-queues `watch-index` | `knowledge.remove/add` · `tools.update` · `enqueueJob` |
 | `endRoom` *(added Day 2)* | `{ roomId }` | `{ status }` | Caller is host. Sets `finished` from any state, so abandoned rooms stop counting toward the 3-room cap (tests use it to clean up) | `tools.get/update` |
 | `joinRoom` | `{ joinCode }` | `{ roomId, title, status }` | Code matches a room not `finished/failed`; caller is not the host (host is sent straight to the room). Idempotent (calling it twice is fine); mid-game joins allowed | `tools.query` rooms by `joinCode` · `tools.update` (add to `playerIds`) · `tools.create` players (`uniqueOn` blocks duplicates) · `tools.get('users', userId)` → name only |
-| `nextQuestion` | `{ roomId }` | `{ status }` | Caller is host; status is `lobby` or `reveal`. Moves to the next question, or to `finished` after the last | `tools.update` rooms + questions (`visibility: 'shown'`, `questionEndsAt = now + 30s`) |
-| `submitAnswer` | `{ roomId, questionId, text }` | `{ locked: true }` (no score yet) | Caller in `playerIds` and not host; status `question`; `questionId` is current; `now ≤ questionEndsAt + 2s`; text 1–80 chars | Matches against `answerKeys`; otherwise **reuses** a verdict for the same `normalized` text; otherwise `knowledge.search(hybrid)` + **AI judge** (§4.2). Then `tools.create` submissions |
+| `nextQuestion` | `{ roomId }` | `{ status }` | Caller is host; status is `lobby` or `reveal`; from the lobby, `canStart(room)` (`src/game/start-rules.ts`: index ready, or failed twice). Moves to the next question, or to `finished` after the last | `tools.update` rooms + questions (`visibility: 'shown'`, `questionEndsAt = now + 30s`) |
+| `submitAnswer` | `{ roomId, questionId, text }` | `{ locked: true }` (no score yet) | Caller in `playerIds` and not host; status `question`; `questionId` is current; `now ≤ questionEndsAt + 2s`; text 1–80 chars | Matches against `answerKeys`; otherwise **reuses** a verdict for the same `normalized` text; otherwise, if `indexStatus = ready`, `knowledge.search(hybrid)` + **AI judge** (§4.2), else `rejected` (0 points; the "Start anyway" case). Then `tools.create` submissions |
 | `revealQuestion` | `{ roomId }` | `{ results }` | Caller is host; status `question`. Idempotent | `tools.query` submissions → scoring (§5) → `tools.update` submissions, players, questions.results, rooms.status = `reveal` |
 
-**Background job** (in `src/jobs.ts`, not an action):
+**Background jobs** (in `src/jobs.ts`, not actions). `createRoom` starts both;
+they run independently (§10.8):
 
 | Job | Payload | What it does | Built-ins |
 |---|---|---|---|
-| `prepare-room` | `{ roomId, attempt }` | **(0)** Exit if the room isn't `preparing` or `attempt ≠ room.prepareAttempt` (stale job). **(a)** `kb.list({ folder })`. If items are still `queued/running`: if more than `INDEX_TIMEOUT_MS` (5 min) has passed since `startedAt` (kept in `job.resumeFrom`), set room `error` with "Indexing took too long. Press Retry." Otherwise `ctx.continue({ startedAt }, { afterMs: INDEX_POLL_MS })` and stop. If an item shows `error`, set room `error`. **(b)** Once `completed`, run the question-generation prompt (§4.1). If the AI call throws, set `error`. **(c)** Verify each answer with fulltext search (§3). **(d)** Write `questions` and `roomSecrets.answerKeys` and set the room to `lobby`. If the content is unusable or fewer than 3 questions survive, set `failed`. | `knowledge.list/search` · `createDeepSpaceAI` + `generateText` + `Output.object` · `ctx.continue` · records through the job's owner context |
+| `prepare-room` | `{ roomId, attempt }` | **(0)** Exit if the room isn't `preparing` or `attempt ≠ room.prepareAttempt` (stale job). **(a)** Run the question-generation prompt (§4.1) on `roomSecrets.sourceText`. If the AI call throws, set `error`. **(b)** Verify each answer against the document text (§3). **(c)** Write `questions` and `roomSecrets.answerKeys` and set the room to `lobby`. If the content is unusable or fewer than 3 questions survive, set `failed`. Logs the time from room creation to lobby. | `createDeepSpaceAI` + `generateText` + `Output.object` · records as the host |
+| `watch-index` | `{ roomId, attempt }` | Exit if `indexStatus ≠ indexing`, `attempt ≠ indexAttempt`, or the game is over. `kb.list({ folder })`: all `completed` → `indexStatus = ready`. An item in `error`, or more than `INDEX_TIMEOUT_MS` since `startedAt` (kept in `job.resumeFrom`) → `indexStatus = failed`, `indexFailures + 1`. Otherwise `ctx.continue({ startedAt }, { afterMs: INDEX_POLL_MS })`. | `knowledge.list` · `ctx.continue` |
 
 **`failed` vs `error`:** `failed` means the document can't make a game, and
-retrying won't help, so the host makes a new room. `error` means something
-technical went wrong (indexing timeout, knowledge error, AI call failure). The
-host sees a **Retry** button that calls `retryPrepare`. The 5-minute cutoff
-means the job can never loop forever.
+retrying won't help, so the host makes a new room. `error` means writing the
+questions went wrong (AI call failure). The host sees a **Retry** button that
+calls `retryPrepare`. Indexing problems don't change `status` at all; they
+show up in the lobby as Retry (`retryIndex`), then "Start anyway" after two
+failures. The 5-minute cutoff means `watch-index` can never loop forever.
 
-Why a job: nothing calls us when indexing finishes, and a model call can take
-longer than one HTTP request. The job queue is the built-in way to wait and
-retry (see §8, contradiction 1).
+Why jobs: a model call can take longer than one HTTP request should, and
+nothing calls us when indexing finishes, so `watch-index` checks every
+few seconds. The job queue is the built-in way to wait and retry (see §8,
+contradiction 1).
 
 ---
 
-## 3. Answer verification (fulltext)
+## 3. Answer verification (text check; changed Nov 22)
 
 For each AI-proposed answer:
-1. `kb.search(answer.text, { folder: 'rooms/<id>', mode: 'fulltext', limit: 3 })`
-2. Keep the answer **only if** some returned `chunk.text`, after normalizing,
-   **contains** the normalized answer text (or one of its aliases). Fulltext
-   search ranks chunks; it does not say yes or no, so we check the text
-   ourselves.
+1. Split `roomSecrets.sourceText` into paragraphs (blank-line separated).
+2. Keep the answer **only if** some paragraph contains it, or one of its
+   aliases, as **whole words after normalizing both sides** (`containsAnswer`
+   in `src/game/normalize.ts`: "cat" does not match "category"). The quote
+   shown at reveal comes from that paragraph.
 3. Drop questions left with fewer than 2 verified answers.
 4. **If fewer than 3 questions survive, the room fails** with
    `failReason: "Not enough content in this document to make a game."`
 
-Cost: about 5 questions × 8 answers = 40 fulltext queries ≈ $0.004 per room.
+*Before Nov 22* this ran `kb.search(answer, { mode: 'fulltext', limit: 3 })`
+and then did the same text check on the returned chunks, which meant waiting
+~2 minutes for the index. The search added nothing the text check didn't
+already decide, and with `limit: 3` it could miss a real answer. The
+index is now used only for judging answers not on the list (§4.2). Cost: no
+search queries at all for verification.
 
 ---
 
@@ -370,11 +384,14 @@ common answer that all 5 gave gets 100 + 0 = **100**.
             createRoom
                 │        ┌── host: Retry (retryPrepare) ──┐
                 ▼        ▼                                │
-           [preparing] ── indexing > 5 min / index error / AI error ──▶ [error]
+           [preparing] ── AI error ──────────────────────────────────▶ [error]
                 │    └─── usable:false / <3 verified questions ──────▶ [failed]
-                │ job done
+                │ prepare-room done (~12 s live)
              [lobby]  ◀── players joinRoom (also allowed later)
-                │ host: nextQuestion
+                │ host: nextQuestion, once canStart(room)
+                │   indexStatus: indexing ──▶ ready            (Start)
+                │                   └──▶ failed ── Retry ──▶ indexing
+                │                   failed twice ──▶ "Start anyway" (off-list answers score 0)
    ┌──────▶ [question]  (30s timer, players submitAnswer)
    │            │ host: revealQuestion  (allowed anytime; timer just stops new answers)
    │         [reveal]
@@ -402,14 +419,15 @@ src/schemas/game-schemas.ts           rooms, players, questions, submissions, ro
 src/actions/index.ts                  export { createRoom, joinRoom, nextQuestion, submitAnswer, revealQuestion }
 src/actions/room-actions.ts           createRoom, joinRoom, nextQuestion, revealQuestion
 src/actions/answer-actions.ts         submitAnswer
-src/jobs.ts                           'prepare-room' handler
+src/jobs.ts                           'prepare-room' and 'watch-index' handlers
 src/game/config.ts                    AI_MODEL and every tunable constant (see top of this file)
 src/game/join-code.ts                 makeJoinCode(), normalizeJoinCode() — pure
 src/game/normalize.ts                 normalizeAnswer(), containsAnswer() — pure (added Day 2)
 src/game/knowledge.ts                 one-folder-per-room wrapper around knowledge(env) (added Day 2)
 src/game/prompts.ts                   the two prompts + zod schemas (§4)
 src/game/ai.ts                        generateQuestions(), judgeAnswer() — the only files that call the model
-src/game/verify.ts                    fulltext verification (§3)
+src/game/verify.ts                    whole-word text verification (§3)
+src/game/start-rules.ts               startState()/canStart(): when the host may Start (§10.8) — pure
 src/game/scoring.ts                   normalize(), scoreQuestion() — pure
 src/game/scoring.test.ts              vitest unit tests
 src/lib/call-action.ts                small fetch wrapper: getAuthToken + POST /api/actions/:name
@@ -436,13 +454,16 @@ The landing page (`src/pages/index.tsx`) gets a short pitch and a "Host a game" 
    observe indexing status."* → We use a **background job that polls `list`**
    with `ctx.continue`, not a server action.
 2. **"Check each answer appears in the doc (fulltext search)."** Fulltext
-   search returns **ranked chunks**, not a yes/no. → We also substring-check
-   the returned chunk text (§3).
+   search returns **ranked chunks**, not a yes/no. → We first substring-checked
+   the returned chunk text. Since Nov 22 we check the document text directly
+   and skip the search (§3, §10.8); this departs from the brief's wording,
+   and NOTES.md explains why.
 3. **Server actions bypass RBAC.** The scaffold warns that an action that takes
    an id from params "has authorized nothing" by default. → Every action loads
    the room and checks host or membership itself.
 4. **The job queue runs one job at a time per scope.** Two hosts preparing at
-   once means the second waits, about 20–40 s each. Fine for a demo; I'll note it in NOTES.md.
+   once means the second waits, about 12 s each (measured Nov 22); a waiting
+   `watch-index` steps aside between checks. Fine for a demo; I'll note it in NOTES.md.
 5. **The scaffold's `AppJobRoom` lets any member enqueue any job type.** A
    player could re-trigger `prepare-room` and spend owner credits. → Set
    `authorizeWrite: () => false` (clients don't need the queue), and the
@@ -499,6 +520,9 @@ The landing page (`src/pages/index.tsx`) gets a short pitch and a "Host a game" 
 **Never cut:** server-side scoring, hidden answer keys, the indexing
 cutoff, and the cost caps.
 
+**Day 3 change (Nov 22, agreed):** before join/next/submit/reveal, the lobby
+stopped waiting for the search index (§10.8). Done first thing on Day 3.
+
 ---
 
 ## 10. Decisions (agreed Nov 21)
@@ -509,5 +533,11 @@ cutoff, and the cost caps.
 3. **Mid-game joins are allowed.** Late players score from their first answer.
 4. **.txt and .md only.** The browser reads them with `file.text()` and sends the text. No file storage.
 5. **5-letter join codes**, e.g. `/join/KQXTR`. No O, I, L. Unique across all rooms (§1).
-6. **The indexing check gives up after 5 minutes** and the room goes to `error` with a Retry button. (Originally 2 minutes; changed Nov 21 after live indexing took 96 s for a 0.6 KB doc and more than 120 s for a 3 KB doc.)
+6. **The indexing check gives up after 5 minutes.** (Originally 2 minutes; changed Nov 21 after live indexing took 96 s for a 0.6 KB doc and more than 120 s for a 3 KB doc.) Since Nov 22 (§10.8) a timeout marks the *index* failed, not the room.
 7. **The off-list AI check is the last thing to cut**; visual polish goes first.
+8. **(Nov 22) The lobby doesn't wait for the search index.** Writing questions
+   uses the full text, and answers are checked by a whole-word text match, so
+   the lobby opens in ~12 s instead of ~2 min. The index is only needed to
+   judge answers not on the list, so the host's Start button waits for it
+   (players join meanwhile). If indexing fails: Retry. After 2 failures, the
+   host may **"Start anyway (answers not on the list will score 0)"**.
