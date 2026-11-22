@@ -365,9 +365,9 @@ cached by question + normalized answer so a second reveal never pays twice.
 **Not checked**
 - **Any points above 0, live.** Our only player account can't know the answer
   list, so its answers were all `unchecked` (0). The listed-answer scoring path
-  is covered only by unit tests. A third test account would let the live
-  test score a real answer. To find one, it would read `missed` from one
-  question's results, but that doesn't help on the same question.
+  is covered only by unit tests. Another test account wouldn't help, since
+  no test account can read the answer list. The real check is a person
+  playing: answer from the document in a browser and see points above 0.
 - **The pages in a browser** (Chromium still can't start on WSL). The countdown,
   answer box and reveal screen are type-checked and built, but nobody has
   looked at them yet.
