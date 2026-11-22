@@ -8,6 +8,7 @@
  */
 
 import type { CollectionSchema, RolePermissions } from 'deepspace/schema'
+import type { QuestionResults } from '../game/scoring'
 
 /** Room states. PLAN.md §6 has the diagram. */
 export const ROOM_STATUSES = [
@@ -32,7 +33,15 @@ export type IndexStatus = (typeof INDEX_STATUSES)[number]
 export const ANSWER_TIERS = ['common', 'uncommon', 'niche', 'none'] as const
 export type AnswerTier = (typeof ANSWER_TIERS)[number]
 
-export const VERDICTS = ['listed', 'supported', 'rejected'] as const
+/**
+ * listed     on the answer list
+ * supported  not on the list, but the AI judge found it in the document (Day 4)
+ * rejected   not on the list, and the judge says the document doesn't support it
+ * unchecked  not on the list, and we couldn't check it (judge failed or timed
+ *            out, no search index, or before Day 4). 0 points, shown as
+ *            "couldn't check" rather than as wrong.
+ */
+export const VERDICTS = ['listed', 'supported', 'rejected', 'unchecked'] as const
 export type Verdict = (typeof VERDICTS)[number]
 
 // Shared permission rows, so each schema below only says what is different.
@@ -186,7 +195,21 @@ export type QuestionData = {
   index?: number
   prompt?: string
   visibility?: 'hidden' | 'shown'
-  results?: unknown // shape defined on Day 3 (PLAN.md §4.3)
+  /** Written at reveal (src/game/scoring.ts). Null until then. */
+  results?: QuestionResults | null
+}
+
+export type SubmissionData = {
+  roomId?: string
+  questionId?: string
+  userId?: string
+  text?: string
+  normalized?: string
+  /** The four fields below are filled in at reveal. */
+  verdict?: Verdict
+  tier?: AnswerTier
+  quote?: string
+  points?: number
 }
 
 export type RoomSecretsData = {

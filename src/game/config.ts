@@ -29,6 +29,12 @@ export const MIN_ANSWERS_PER_QUESTION = 2
 /** Cap on the AI's reply length. Keeps the credits reserved per call small. */
 export const AI_MAX_OUTPUT_TOKENS = 4_000
 
+/** Scoring (PLAN.md §5): base points by tier, plus up to RARITY_BONUS_MAX for rare answers. */
+export const TIER_POINTS = { common: 100, uncommon: 200, niche: 300 } as const
+/** An answer not on the list that the AI judge found in the document. */
+export const SUPPORTED_POINTS = 300
+export const RARITY_BONUS_MAX = 100
+
 /** Seconds players get to answer each question. */
 export const QUESTION_SECONDS = 30
 

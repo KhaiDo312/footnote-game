@@ -1,13 +1,15 @@
 /**
- * /home: start a game, and see the games you host or have joined.
+ * /home: join a game by code, start a game, and see the games you host or have joined.
  *
  * The room list is live (useQuery). Permissions decide what arrives: a
  * player only ever receives rooms they host or have joined.
  */
 
-import { Link } from 'react-router-dom'
+import { useState, type FormEvent } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth, useQuery } from 'deepspace'
-import { Button } from '@/components/ui'
+import { Button, Input } from '@/components/ui'
+import { normalizeJoinCode } from '@/game/join-code'
 import type { RoomData, RoomStatus } from '@/schemas/game-schemas'
 
 const STATUS_LABEL: Record<RoomStatus, string> = {
@@ -29,8 +31,13 @@ export default function HomePage() {
       <h1 className="mb-2 text-3xl font-bold tracking-tight">Footnote</h1>
       <p className="mb-8 text-muted-foreground">Trivia from your own document. Rare answers win.</p>
 
+      <JoinForm />
+
+      <p className="mt-10 mb-3 text-sm text-muted-foreground">Or run a game from your own document:</p>
       <Link to="/new">
-        <Button data-testid="host-game">Host a new game</Button>
+        <Button variant="secondary" data-testid="host-game">
+          Host a new game
+        </Button>
       </Link>
 
       {isSignedIn && records.length > 0 && (
@@ -51,5 +58,41 @@ export default function HomePage() {
         </section>
       )}
     </div>
+  )
+}
+
+/** Type a code and go to /join/CODE, which does the joining. */
+function JoinForm() {
+  const navigate = useNavigate()
+  const [code, setCode] = useState('')
+  const [error, setError] = useState('')
+
+  function onSubmit(event: FormEvent) {
+    event.preventDefault()
+    const clean = normalizeJoinCode(code)
+    if (!clean) return setError('Codes are 5 letters, like KQXTR.')
+    navigate(`/join/${clean}`)
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="flex max-w-sm gap-2">
+      <Input
+        value={code}
+        maxLength={5}
+        onChange={(e) => {
+          setCode(e.target.value.toUpperCase())
+          setError('')
+        }}
+        placeholder="Join code"
+        className="font-mono tracking-widest"
+        aria-label="Join code"
+      />
+      <Button type="submit">Join</Button>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </form>
   )
 }

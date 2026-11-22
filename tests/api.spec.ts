@@ -42,12 +42,33 @@ test.describe('Room actions', () => {
     expect(long.error).toContain('too long')
   })
 
-  test('retryPrepare, retryIndex and endRoom refuse someone who is not the host', async ({ request, baseURL }) => {
+  test('host actions refuse a room the caller does not host', async ({ request, baseURL }) => {
     const { token } = await signInAndGetToken(request, baseURL!, 'Footnote Player A')
-    for (const name of ['retryPrepare', 'retryIndex', 'endRoom']) {
+    for (const name of ['retryPrepare', 'retryIndex', 'endRoom', 'nextQuestion', 'revealQuestion']) {
       const result = await callActionAs(request, token, name, { roomId: 'no-such-room' })
-      expect(result).toMatchObject({ success: false, error: 'Room not found.' })
+      expect(result, name).toMatchObject({ success: false, error: 'Room not found.' })
     }
+  })
+})
+
+test.describe('Game actions', () => {
+  test('joinRoom refuses malformed and unknown codes', async ({ request, baseURL }) => {
+    const { token } = await signInAndGetToken(request, baseURL!, 'Footnote Player B')
+    const malformed = await callActionAs(request, token, 'joinRoom', { joinCode: 'OIL12' })
+    expect(malformed.error).toContain('doesn’t look right')
+    // Valid letters, but (almost certainly) no room has this code.
+    const unknown = await callActionAs(request, token, 'joinRoom', { joinCode: 'ZZZZZ' })
+    expect(unknown).toMatchObject({ success: false, error: 'No game has that code.' })
+  })
+
+  test('submitAnswer validates the answer before anything else', async ({ request, baseURL }) => {
+    const { token } = await signInAndGetToken(request, baseURL!, 'Footnote Player B')
+    const empty = await callActionAs(request, token, 'submitAnswer', { roomId: 'x', questionId: 'y', text: '  ' })
+    expect(empty.error).toBe('Type an answer first.')
+    const long = await callActionAs(request, token, 'submitAnswer', { roomId: 'x', questionId: 'y', text: 'a'.repeat(81) })
+    expect(long.error).toContain('at most 80')
+    const missing = await callActionAs(request, token, 'submitAnswer', { roomId: 'x', questionId: 'y', text: 'hi' })
+    expect(missing).toMatchObject({ success: false, error: 'Room not found.' })
   })
 })
 
