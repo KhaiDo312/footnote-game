@@ -15,10 +15,3 @@ export const VERDICT_LABEL: Record<Verdict, string> = {
   rejected: 'Not in the document',
   unchecked: 'Couldn’t check',
 }
-
-export const VERDICT_BADGE: Record<Verdict, 'success' | 'info' | 'destructive' | 'secondary'> = {
-  listed: 'success',
-  supported: 'info',
-  rejected: 'destructive',
-  unchecked: 'secondary',
-}

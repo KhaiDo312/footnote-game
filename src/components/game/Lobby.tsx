@@ -19,11 +19,11 @@ export function HostLobby({ roomId, room }: { roomId: string; room: RoomData }) 
   return (
     <div data-testid="room-lobby">
       <p className="text-sm text-muted-foreground">Join code</p>
-      <p data-testid="join-code" className="font-mono text-5xl font-bold tracking-[0.3em]">
+      <p data-testid="join-code" className="font-display text-5xl font-semibold tracking-[0.3em] text-primary">
         {joinCode}
       </p>
       <p className="mt-2 text-sm text-muted-foreground">
-        Players open <span className="font-mono">{joinUrl}</span>
+        Players open <span className="font-mono break-all">{joinUrl}</span>
       </p>
 
       <h2 className="mt-8 mb-2 text-lg font-semibold">Players</h2>
@@ -45,7 +45,8 @@ export function HostLobby({ roomId, room }: { roomId: string; room: RoomData }) 
 export function PlayerLobby({ roomId }: { roomId: string }) {
   return (
     <div data-testid="player-lobby">
-      <p className="text-lg">You’re in. Waiting for the host to start…</p>
+      <p className="pop font-display text-2xl">You’re in.</p>
+      <p className="mt-1 text-muted-foreground">Waiting for the host to start…</p>
       <h2 className="mt-8 mb-2 text-lg font-semibold">Players</h2>
       <PlayerList roomId={roomId} showScores={false} empty="" />
     </div>

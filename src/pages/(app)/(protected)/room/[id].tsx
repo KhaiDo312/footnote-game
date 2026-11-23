@@ -74,11 +74,16 @@ export default function RoomPage() {
   )
 }
 
+/** The page: one sheet of paper on the ink-navy desk. */
 function Shell({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
-    <div className="mx-auto max-w-2xl px-6 py-16 text-foreground">
-      {title && <h1 className="mb-8 text-3xl font-bold tracking-tight">{title}</h1>}
-      {children}
+    <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-16">
+      <article className="paper rounded-sm px-5 py-7 sm:px-10 sm:py-10">
+        {title && (
+          <h1 className="mb-6 border-b border-border pb-4 text-3xl font-semibold tracking-tight">{title}</h1>
+        )}
+        {children}
+      </article>
     </div>
   )
 }

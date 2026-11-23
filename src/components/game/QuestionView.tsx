@@ -6,7 +6,7 @@
 import { useState, type FormEvent } from 'react'
 import { useQuery } from 'deepspace'
 import { Button, Input } from '@/components/ui'
-import { MAX_ANSWER_CHARS } from '@/game/config'
+import { MAX_ANSWER_CHARS, QUESTION_SECONDS } from '@/game/config'
 import { callAction } from '@/lib/call-action'
 import { useSecondsLeft } from '@/lib/use-seconds-left'
 import type { QuestionData, RoomData, SubmissionData } from '@/schemas/game-schemas'
@@ -21,15 +21,22 @@ export function QuestionView({ roomId, room, isHost }: { roomId: string; room: R
 
   return (
     <div data-testid="question-view">
-      <div className="flex items-baseline justify-between text-sm text-muted-foreground">
+      {/* The timer: an ink line that drains. Display only; the server decides. */}
+      <div className="h-1 overflow-hidden rounded-full bg-foreground/10" aria-hidden>
+        <div
+          className="h-full rounded-full bg-primary ease-linear motion-safe:transition-[width] motion-safe:duration-1000"
+          style={{ width: `${(secondsLeft / QUESTION_SECONDS) * 100}%` }}
+        />
+      </div>
+      <div className="mt-3 flex items-baseline justify-between text-sm text-muted-foreground">
         <span>
           Question {(room.currentIndex ?? 0) + 1} of {room.questionCount}
         </span>
-        <span data-testid="seconds-left" className={`font-mono text-2xl ${secondsLeft <= 5 ? 'text-destructive' : ''}`}>
+        <span data-testid="seconds-left" className={`font-mono text-2xl ${secondsLeft <= 5 ? 'text-primary' : ''}`}>
           {secondsLeft}s
         </span>
       </div>
-      <p className="mt-4 text-2xl font-semibold">{question?.data.prompt ?? '…'}</p>
+      <h2 className="mt-4 text-2xl leading-snug font-semibold">{question?.data.prompt ?? '…'}</h2>
 
       {isHost ? (
         <ActionButton
@@ -64,28 +71,29 @@ function AnswerBox({ roomId, questionId, timeUp }: { roomId: string; questionId:
 
   if (mine) {
     return (
-      <p className="mt-8 text-lg" data-testid="answer-locked">
-        Locked in: <strong>{mine.data.text}</strong>
+      <p className="pop mt-8 text-lg" data-testid="answer-locked">
+        Locked in: <strong className="font-display text-xl">{mine.data.text}</strong>
       </p>
     )
   }
   if (timeUp) return <p className="mt-8 text-lg text-muted-foreground">Time’s up.</p>
 
   return (
-    <form onSubmit={onSubmit} className="mt-8 flex gap-2">
+    <form onSubmit={onSubmit} className="mt-8 flex flex-wrap gap-2">
       <Input
         autoFocus
         value={text}
         maxLength={MAX_ANSWER_CHARS}
         onChange={(e) => setText(e.target.value)}
         placeholder="Your answer (rarer scores more)"
+        className="min-w-0 flex-1"
         data-testid="answer-input"
       />
       <Button type="submit" disabled={busy || !text.trim()}>
         {busy ? 'Sending…' : 'Lock in'}
       </Button>
       {error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="w-full text-sm text-destructive">
           {error}
         </p>
       )}

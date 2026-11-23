@@ -16,31 +16,34 @@
  *   4. Switch to it via `data-theme` on <html> in index.html.
  */
 
-/* Paper — light example theme; shows the full token contract incl.
- * `color-scheme: light`. Replace or delete it once the app has its own. */
-[data-theme="paper"] {
-  color-scheme: light;
-  --color-background: #ffffff;
-  --color-foreground: #0a0a0a;
-  --color-card: #fafafa;
-  --color-card-foreground: #0a0a0a;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #0a0a0a;
-  --color-primary: #171717;
+/*
+ * Footnote — a page of paper and ink. Ink-navy desk, cream paper, one accent
+ * (proofreader's vermilion). Anything inside `.paper` (see styles.css) is
+ * drawn in ink on cream; everything else is cream on navy.
+ */
+[data-theme="footnote"] {
+  --color-background: #0f1b33;
+  --color-foreground: #efe6d2;
+  --color-card: #f5eedd;
+  --color-card-foreground: #1b2540;
+  --color-popover: #f5eedd;
+  --color-popover-foreground: #1b2540;
+  --color-primary: #d24a2f;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #f5f5f5;
-  --color-secondary-foreground: #0a0a0a;
-  --color-muted: #f5f5f5;
-  --color-muted-foreground: #525252;
-  --color-accent: #e5e5e5;
-  --color-accent-foreground: #0a0a0a;
-  --color-destructive: #dc2626;
+  --color-secondary: #1c2a48;
+  --color-secondary-foreground: #efe6d2;
+  --color-muted: #1c2a48;
+  --color-muted-foreground: #aab3c6;
+  --color-accent: #24345a;
+  --color-accent-foreground: #efe6d2;
+  --color-destructive: #e0664c;
   --color-destructive-foreground: #ffffff;
-  --color-border: #e5e5e5;
-  --color-input: #e5e5e5;
-  --color-ring: #171717;
-  --shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.016);
-  --shadow-card-hover: 0 2px 8px 0 rgba(0, 0, 0, 0.032);
-  --color-shell: #fafafa;
-  --color-shell-panel: #ffffff;
+  --color-border: rgba(239, 230, 210, 0.18);
+  --color-input: rgba(239, 230, 210, 0.28);
+  --color-ring: #d24a2f;
+  --shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 4px 14px 0 rgba(0, 0, 0, 0.3);
+  --color-shell: #0f1b33;
+  --color-shell-panel: #16233f;
+  --radius: 0.25rem;
 }

@@ -23,9 +23,9 @@ export const THEMES = [
     description: 'Neutral dark placeholder default. Replace with your own theme.',
   },
   {
-    id: 'paper',
-    label: 'Paper',
-    description: 'Light example theme showing the token contract. Replace or delete.',
+    id: 'footnote',
+    label: 'Footnote',
+    description: 'Paper and ink: ink-navy desk, cream paper cards, vermilion accent. The app’s theme.',
   },
 ] as const
 

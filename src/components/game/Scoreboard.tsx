@@ -14,10 +14,10 @@ export function PlayerList({ roomId, showScores, empty }: { roomId: string; show
 
   if (players.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>
   return (
-    <ol className="divide-y divide-border rounded-lg border border-border" data-testid="player-list">
+    <ol className="divide-y divide-border rounded border border-border" data-testid="player-list">
       {players.map((p) => (
-        <li key={p.recordId} className="flex justify-between px-4 py-2">
-          <span>{p.data.name}</span>
+        <li key={p.recordId} className="ink-in flex justify-between px-4 py-2">
+          <span className="font-display">{p.data.name}</span>
           {showScores && <span className="font-mono">{p.data.score ?? 0}</span>}
         </li>
       ))}
@@ -35,7 +35,7 @@ export function FinalScoreboard({ roomId }: { roomId: string }) {
     <div data-testid="final-scoreboard">
       <p className="text-lg">This game has ended.</p>
       {topScore > 0 && (
-        <p className="mt-2 text-2xl font-semibold">
+        <p className="pop mt-2 font-display text-3xl font-semibold">
           {tied ? `It’s a tie at ${topScore} points` : `${first.data.name} wins with ${topScore} points`}
         </p>
       )}
