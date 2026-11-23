@@ -36,7 +36,8 @@ export type AnswerTier = (typeof ANSWER_TIERS)[number]
 /**
  * listed     on the answer list
  * supported  not on the list, but the AI judge found it in the document
- * rejected   not on the list, and the judge says the document doesn't support it
+ * rejected   not on the list, and the document doesn't support it: either it
+ *            never mentions it, or it says otherwise ("no longer taught")
  * unchecked  not on the list, and we couldn't check it (judge failed or timed
  *            out, or no search index). 0 points, shown as
  *            "couldn't check" rather than as wrong.

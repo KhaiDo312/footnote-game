@@ -659,3 +659,22 @@ simultaneous reveals (both tradeoffs are above).
 - In one wide-screen screenshot, the single ink line looked slightly
   segmented. That's probably how headless Chromium draws the note's
   0.6-degree tilt; it didn't happen at 375 px. Not checked on a real screen.
+
+### Mon Nov 23 — "Saltmere slip" rejected: correct verdict, wrong label
+
+**You reported** that "Saltmere slip" was rejected although it's in the
+document.
+
+**What the agent found:** the verdict is right. Footnote 3 says the slip
+"**is no longer taught**", and the question asks for a knot *taught* at the
+school. The log shows the judge found the paragraph and the AI said no
+(`"from":"judged","aiSaidYes":false`), so this isn't the search problem. It's
+the same kind of trap as "has never sold salmon".
+
+**The real bug was the label:** "Not in the document" was false.
+- Rejected answers now read **"The document doesn't support it"**. That covers
+  both cases: the document never mentions the answer, or it says otherwise.
+- The agent's earlier `prettier --write` had reformatted `Scoreboard.tsx` to
+  Prettier's defaults (double quotes, semicolons), because the repo has no
+  Prettier config. It's restored to the house style (single quotes, no
+  semicolons, 120 columns).

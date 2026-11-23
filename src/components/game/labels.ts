@@ -12,6 +12,6 @@ export const TIER_LABEL: Record<AnswerTier, string> = {
 export const VERDICT_LABEL: Record<Verdict, string> = {
   listed: 'On the list',
   supported: 'Found in the document',
-  rejected: 'Not in the document',
+  rejected: 'The document doesn’t support it', // e.g. it says "no longer taught"
   unchecked: 'Couldn’t check',
 }
