@@ -504,3 +504,50 @@ simultaneous reveals (both tradeoffs are above).
   show whether the second request's save hit the duplicate rule. The unit test
   "uses the verdict another reveal saved first" covers that logic.
 - **A judge timeout, live** (unit test only).
+
+### Mon Nov 23 — Design pass: "Footnote", paper and ink
+
+**Agreed before coding:** you picked direction A, "The Printed Page", over B,
+"The Annotated Stack". Only pages and styles changed; no game logic.
+
+**What the agent did**
+- **Theme `footnote`** (`src/themes.css`): ink-navy desk, cream paper,
+  vermilion as the one accent. Fonts: Fraunces for headings, Inter for UI
+  (Google Fonts). A `.paper` class (`src/styles.css`) switches the color tokens
+  to ink-on-cream, so the existing Button/Input components need no changes.
+- **The room page is one sheet of paper.**
+- **Reveal** (`RevealView.tsx`): rarer answers sink lower on the page.
+  - Body text: common answers.
+  - Margin note: uncommon answers, indented with a red rule.
+  - Footnote ¹: niche answers, below a short rule.
+  - Deep footnote †: answers the AI judge found.
+  - Answers that didn't count are struck out at the top.
+  - The question gets the matching ¹/† marks. Answers drop in one by one,
+    rarer ones fall further, and the points count up (`src/lib/use-count-up.ts`).
+- **Timer:** an ink line that drains.
+- **Small touches:** a pop when an answer locks in, and names "ink in" when
+  players join.
+- **Reduced motion:** with `prefers-reduced-motion`, every animation is off and
+  the points show straight away.
+- **Name:** the app's display name is now "Footnote" (it was "footnote-game").
+
+**Checks the agent ran**
+- **Chromium works on WSL now, without sudo.** The missing libraries
+  (`libnspr4`, `libnss3`, `libasound2`) are unpacked to `~/.local/chromium-libs`
+  and loaded with `LD_LIBRARY_PATH`.
+- **New `tests/browser-game.spec.ts`**, passes live (1.7 min; costs credits,
+  run on purpose): host and player in two real browsers at 375×812.
+  - The player joins by link and the host sees them.
+  - The host starts the game and the player answers in the browser.
+  - The host reveals, and the player sees the results and their points.
+  - Nothing scrolls sideways.
+  - With reduced motion, the drop animation is `none`.
+  - Screenshots of each screen go to `test-results/`.
+
+**Not checked**
+- **The margin, footnote and deep-footnote bands with real data.** The test
+  has one player, so the reveal showed only one answer, in body text. Your
+  3-account game is the way to see all the bands at once.
+- **Real phones (iOS Safari, Android Chrome).** Only Chromium at phone width.
+- **The fonts if Google Fonts is blocked.** They fall back to Georgia and the
+  system sans.

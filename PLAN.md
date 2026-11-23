@@ -3,7 +3,7 @@
 A multiplayer trivia game built from a document. Rarer answers score more points.
 Due **Tue Nov 24, 11:59 PM ET**. SDK version: `deepspace@0.44.2`, AI SDK `ai@7`.
 
-> **Status:** plan agreed (decisions in §10). Days 1–3 done and deployed (Day 3 on Nov 22, a day early). Day 4's AI judge (§4.2) done and deployed Nov 22. Next: a browser test if Chromium works, design pass, final NOTES.
+> **Status:** plan agreed (decisions in §10). Days 1–3 done and deployed (Day 3 on Nov 22, a day early). Day 4's AI judge (§4.2) done and deployed Nov 22. Design pass and a two-browser test done Nov 23. Next: final NOTES and deploy.
 
 ## Settings in one place
 
