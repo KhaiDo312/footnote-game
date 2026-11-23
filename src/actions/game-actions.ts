@@ -296,3 +296,20 @@ async function syncPlayerIds(tools: ActionTools, roomId: string): Promise<Action
 function fail(error: string): ActionResult<never> {
   return { success: false, error }
 }
+
+// TEMPORARY experiment (Nov 23): does a hyphen in the query empty the search?
+// Host-only. Removed once answered.
+export const debugSearch: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
+  const loaded = await loadAsHost(tools, userId, params.roomId)
+  if (!loaded.success) return loaded
+  const queries = (params.queries as string[]) ?? []
+  const out: Record<string, number | string> = {}
+  for (const q of queries) {
+    try {
+      out[q] = (await searchRoom(env, loaded.data.roomId, q, 5)).length
+    } catch (e) {
+      out[q] = `error: ${e instanceof Error ? e.message : String(e)}`
+    }
+  }
+  return { success: true, data: out }
+}

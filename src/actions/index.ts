@@ -5,7 +5,7 @@
 
 import type { ActionHandler } from 'deepspace/worker'
 import type { Env } from '../../worker'
-import { joinRoom, nextQuestion, revealQuestion, submitAnswer } from './game-actions'
+import { debugSearch, joinRoom, nextQuestion, revealQuestion, submitAnswer } from './game-actions'
 import { createRoom, endRoom, retryIndex, retryPrepare } from './room-actions'
 
 export const actions: Record<string, ActionHandler<Env>> = {
@@ -19,4 +19,5 @@ export const actions: Record<string, ActionHandler<Env>> = {
   nextQuestion,
   submitAnswer,
   revealQuestion,
+  debugSearch,
 }
