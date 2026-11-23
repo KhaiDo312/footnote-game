@@ -310,12 +310,13 @@ export const debugSearch: ActionHandler<Env> = async ({ userId, params, tools, e
   const items = await kb.list({ folder: roomFolder(loaded.data.roomId), perPage: 50 })
   out.items = JSON.stringify(items.items.map((i) => [i.status, (i as { name?: string }).name]))
   for (const q of queries) {
-    for (const mode of ['hybrid', 'fulltext', 'semantic'] as const) {
-      for (const matchThreshold of [undefined, 0]) {
+    for (const mode of ['hybrid'] as const) {
+      for (const matchThreshold of [undefined]) {
         try {
           const r = await kb.search(q, { folder: roomFolder(loaded.data.roomId), mode, limit: 5, matchThreshold })
-          out[`${mode}${matchThreshold === 0 ? '/t0' : ''} ${q}`] =
-            `${r.chunks.length} ${JSON.stringify(r.chunks.map((c) => [c.score.toFixed(2), c.text.slice(0, 40)]))}`
+          out[`${mode}${matchThreshold === 0 ? '/t0' : ''} ${q}`] = `${r.chunks.length} ${JSON.stringify(
+            r.chunks.map((c) => [c.score.toFixed(2), c.text.length, ['fish pie', 'salmon', 'Lantern Night is held', 'pouting', 'Turk'].filter((w) => c.text.includes(w)), c.text.slice(-80)]),
+          )}`
         } catch (e) {
           out[`${mode} ${q}`] = `error: ${e instanceof Error ? e.message : String(e)}`
         }

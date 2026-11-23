@@ -24,6 +24,10 @@ test('search with and without hyphens', async ({ request, baseURL }) => {
         'Name a food served at Lantern Night. burnt honey fudge',
         'Lantern Night',
         'fish pie',
+        'pie',
+        'Fish pie is the most famous Lantern Night food',
+        'pouting',
+        'herring',
         'Name a fish sold at the Saltmere fish market. salmon',
       ],
     })
