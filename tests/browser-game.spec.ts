@@ -5,8 +5,8 @@
  * answers late in the document get a real verdict, and the sign-in box and
  * account menu are readable. Saves screenshots of each screen to test-results/.
  *
- * COSTS CREDITS (one AI call to write questions, maybe one to judge) and
- * takes ~3 minutes, mostly waiting for the search index. Run it on purpose.
+ * COSTS CREDITS (one AI call to write questions, a few to judge) and
+ * takes ~4 minutes, mostly waiting for the search index. Run it on purpose.
  */
 
 import { readFileSync } from 'node:fs'
@@ -19,7 +19,7 @@ test.describe.configure({ timeout: 10 * 60_000 })
 const PHONE = { width: 375, height: 812 }
 const fixture = readFileSync(new URL('./fixtures/saltmere-almanac.md', import.meta.url), 'utf8')
 
-test('one question in two phone-sized browsers', async ({ browser, baseURL }, testInfo) => {
+test('a whole game in two phone-sized browsers', async ({ browser, baseURL }, testInfo) => {
   const hostContext = await browser.newContext({ viewport: PHONE, baseURL })
   const playerContext = await browser.newContext({ viewport: PHONE, baseURL })
   // Signing in through the context's request sets the session cookie its pages use.
@@ -94,8 +94,9 @@ test('one question in two phone-sized browsers', async ({ browser, baseURL }, te
     // (Nov 23 bug). It must get a real verdict, never "Couldn't check".
     for (;;) {
       await hostPage.getByTestId('next').click()
-      if (await hostPage.getByTestId('final-scoreboard').isVisible({ timeout: 5_000 }).catch(() => false)) break
-      await expect(playerPage.getByTestId('answer-input')).toBeVisible()
+      const input = playerPage.getByTestId('answer-input')
+      await expect(input.or(playerPage.getByTestId('final-scoreboard'))).toBeVisible()
+      if (!(await input.isVisible())) break // the game is over
       await playerPage.getByTestId('answer-input').fill('Burnt-honey fudge')
       await playerPage.getByRole('button', { name: 'Lock in' }).click()
       await expect(playerPage.getByTestId('answer-locked')).toBeVisible()
@@ -115,7 +116,8 @@ test('one question in two phone-sized browsers', async ({ browser, baseURL }, te
 
     // The account menu and the sign-in box are readable (cream on navy, not cream on cream).
     await playerPage.setViewportSize({ width: 1024, height: 700 })
-    await playerPage.getByTestId('app-navigation').getByRole('button').first().click()
+    await playerPage.getByRole('button', { name: 'Account menu' }).click()
+    await expect(playerPage.getByTestId('nav-user-email')).toBeVisible()
     await shot(playerPage, '6-account-menu')
     const signedOut = await browser.newContext({ viewport: PHONE, baseURL })
     const outPage = await signedOut.newPage()

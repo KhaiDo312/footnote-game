@@ -97,6 +97,35 @@ docs would help anyone designing a "wait for indexing" step.
   in the output when the limit is hit would help. (Our earlier note that
   `--search` "found nothing" was probably the same cause.)
 
+### 6. Knowledge search can't find text late in a document (bug, Nov 23)
+
+Our 3 KB test document (`tests/fixtures/saltmere-almanac.md`) was indexed as
+**one chunk** of 3,069 characters. The stored chunk text is complete, but only
+roughly its **first ~2,000 characters are searchable**:
+- "pouting" (character 788) and "herring" are found;
+- "fish pie" (character 2,250), "pie", "burnt honey fudge" (2,501), and even
+  the exact sentence "Fish pie is the most famous Lantern Night food" return
+  **0 chunks**.
+
+The result was the same in `hybrid`, `fulltext` and `semantic` mode, with or
+without `matchThreshold: 0`. The `mode` option made no visible difference at
+all.
+
+**How we found it:** in a live game, the judge said "Couldn't check" for
+"Burnt-honey fudge". The log said `search found no passages`.
+1. Our first hypothesis was that the hyphen broke the keyword search. A
+   temporary host-only action ran the same searches on a fresh room, and
+   "burnt honey fudge" without the hyphen also returned nothing, so that was
+   wrong.
+2. Printing each chunk's length and contents showed one chunk, holding the
+   whole document, that the search couldn't match past its start.
+
+The temporary action was then removed.
+
+**Our workaround:** the judge now takes passages from our own stored copy of
+the document first (see "The judge reads the document text first" below). The
+index only adds context.
+
 ### 5. No atomic "add to a list" or conditional update in action tools (gap)
 
 `ActionTools` has `create / update / remove / get / query / deleteWhere`, but
@@ -138,17 +167,14 @@ list.
 
 **Tradeoff: "Start anyway".** If indexing fails, the host sees Retry. After
 **two** failed attempts (`INDEX_FAILURES_BEFORE_START_ANYWAY`), they also see
-**"Start anyway (answers not on the list will score 0)"**.
-- **What it costs:** without the index there are no passages to show the AI
-  judge, so every answer not on the list gets `unchecked` (0 points), even if
-  the document supports it. That's unfair to players who find a real but
-  unlisted answer, and it weakens the "rare answers win" idea.
-- **Why we allow it anyway:** the host has a room of people waiting. A
-  slightly harsher game beats no game, and the button says exactly what
-  happens.
-- **What we don't do:** send the whole document to the AI judge instead.
-  That would work without the index, but it costs up to ~12k input tokens
-  per judged answer, which is too expensive when the app owner pays.
+**"Start anyway (answers are checked against the text only)"**.
+- *Until Nov 23* this meant answers not on the list scored 0. Since the judge
+  reads our own copy of the document first (below), they are still judged.
+  Only the extra context passages from the search are missing.
+- **Why we allow it:** the host has a room of people waiting.
+- **What we don't do:** send the whole document to the AI judge. That costs up
+  to ~12k input tokens per judged answer, which is too much when the app owner
+  pays. The judge sends at most 5 passages.
 
 **Not tested end to end:** the indexing failure path (Retry, then "Start
 anyway"). We can't make the live index fail on demand. The rules are
@@ -183,7 +209,7 @@ on purpose.
   the read, would be stored but not scored. The window is milliseconds; we
   haven't seen it happen.
 - **A judge failure scores 0, shown as "Couldn't check".** That covers a
-  timeout, an AI error, no passages, or no index. It is shown in grey, not as
+  timeout, or the AI failing twice (one retry). It is shown in grey, not as
   wrong, and it isn't saved, so revealing again retries it. The verdict
   can't be changed after the host moves on.
 
@@ -206,6 +232,32 @@ from the document, and **our server** then checks three things:
   real text, and our code checks that text.
 - **What helps:** the answer list already has aliases, so common other
   spellings of listed answers still count.
+
+### The judge reads the document text first (Nov 23)
+
+The judge's passages used to come only from the search index, which turned
+out to miss text late in a document (SDK feedback #6). The judge now works in
+this order:
+1. **Our own paragraphs:** take the paragraphs of our stored copy of the
+   document (`roomSecrets.sourceText`) that contain the answer as whole
+   words. This is the same check `verify.ts` uses for the answer list.
+2. **Not in the document → `rejected` straight away, with no AI call.** It
+   could never pass the quote check anyway, because the quote must contain
+   the answer.
+3. **Add search results** for context, up to 5 passages in total. A failed
+   search no longer stops the judge.
+4. **Ask the AI once**, retrying once if its reply can't be parsed. This was
+   seen live on Nov 23 for "Tamsin Luck": "No object generated: could not
+   parse the response."
+
+- **What it costs:** an answer spelled differently from the document is
+  rejected without asking the AI. For example, "Tamsin Luck" for "Tamsin's
+  Luck": the apostrophe normalizes to a space, giving "tamsin s luck". The
+  strict quote rule already rejected these before, so the result is the
+  same; it's just cheaper.
+- **What it fixes:** "Burnt-honey fudge" and anything else late in a document
+  get a real verdict instead of "Couldn't check". It also cuts AI calls,
+  since nonsense and injection answers no longer reach the AI.
 
 ### Two reveals at the same moment: no lock (Nov 22)
 
@@ -551,3 +603,59 @@ simultaneous reveals (both tradeoffs are above).
 - **Real phones (iOS Safari, Android Chrome).** Only Chromium at phone width.
 - **The fonts if Google Fonts is blocked.** They fall back to Georgia and the
   system sans.
+
+### Mon Nov 23 — Your review of the design, and a judge bug
+
+**You reported** (from a 3-account game, with screenshots):
+- a spinner was wanted next to Start;
+- "Burnt-honey fudge" wasn't accepted;
+- the name in the header was blurry;
+- the final screen needed a picture of how deep each player read.
+
+**What the agent did**
+- **The bug.** The log said `search found no passages`. We tested hypotheses
+  on a fresh room with a temporary action (removed after), and found the
+  index can't see text past about the first 2,000 characters (SDK feedback
+  #6). You chose the fix: the judge reads our own copy of the document first
+  (design decision above).
+  - One retry when the AI's reply can't be parsed.
+  - "Start anyway" now judges from the text, and its label says so.
+- **Spinner:** next to the disabled Start button while the answer checker gets
+  ready. It doesn't spin with reduced motion; the text below still explains.
+- **Header name, account menu, settings card, sign-in box.** These were cream
+  text on a cream box, the "Must fix" from the design review. Boxes outside
+  the paper sheet are now raised navy with cream text.
+- **Final scores:**
+  - the leaderboard shows 3 rows and scrolls for more, with rank numbers;
+  - below it, a ruled paper note with one ink line per player, hanging from
+    the top: a higher score makes a deeper line, yours is red and tagged
+    "You", and the note keeps the same size for any number of players;
+  - the lines flow down when the screen opens (off with reduced motion);
+  - screen readers get the scores as a list instead.
+
+**Checks the agent ran**
+- **Unit tests: 62 pass.**
+  - The new judge tests include "judges an answer the search can't find, from
+    our own copy (bug of Nov 23)".
+  - Bringing back the old search-only behavior made 3 of them fail.
+- **`tests/browser-game.spec.ts` now plays a whole game** in two browsers at
+  375 px, and passes live (1.9 min).
+  - The player answers "Burnt-honey fudge" from question 2 on. Results:
+    rejected 0, listed 300, rejected 0, rejected 0. None came back
+    "Couldn't check".
+  - The log shows the AI was asked each time, and said no where the question
+    wasn't about food.
+  - It also checks the account menu opens, and that the signed-out sign-in
+    box on a join link is readable.
+  - Screenshots were checked by eye: lobby spinner, final note with the red
+    "You" line, sign-in box, menu.
+
+**Not checked**
+- **A live `supported` verdict for a late-document answer.** In this run the
+  AI happened to put Burnt-honey fudge on the answer list (300 points). The
+  unit test covers the path.
+- **The ink note with several players.** The test has one player, so there
+  was one line. Your 3-account game would show several.
+- In one wide-screen screenshot, the single ink line looked slightly
+  segmented. That's probably how headless Chromium draws the note's
+  0.6-degree tilt; it didn't happen at 375 px. Not checked on a real screen.

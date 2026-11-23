@@ -324,14 +324,24 @@ the list, all in parallel. Rules agreed Nov 22 for Day 4:
   completes: those answers get verdict `unchecked` (0 points, shown as
   "Couldn't check"). Unchecked verdicts are not cached, so a later reveal may
   retry them.
-- **No index** (the "Start anyway" case): no judge call, verdict `unchecked`.
+- **No index** (the "Start anyway" case): judged from the document text only
+  (no search). *Changed Nov 23;* it was `unchecked` before.
 
-Built Nov 22 (`src/game/judge.ts`, prompt in `src/game/prompts.ts`). Per
-distinct answer: saved verdict? → use it. Otherwise
-`kb.search(`${prompt} ${playerAnswer}`, { folder, mode: 'hybrid', limit: 5 })`
-→ one AI call (`maxOutputTokens: 300`) → our quote check. Search + AI share a
-**10 s timeout** (the AI call is aborted). Timeout, error or no passages →
-`unchecked`.
+Built Nov 22 (`src/game/judge.ts`, prompt in `src/game/prompts.ts`), changed
+Nov 23. For each distinct answer:
+1. Saved verdict? Use it.
+2. Otherwise take the paragraphs of `roomSecrets.sourceText` that contain the
+   answer as whole words. None → `rejected`, with no AI call.
+3. Add `kb.search(`${prompt} ${playerAnswer}`, { folder, mode: 'hybrid', limit: 5 })`
+   results, up to 5 passages in total.
+4. One AI call (`maxOutputTokens: 300`; one retry if the reply can't be parsed).
+5. Our quote check.
+
+Search + AI share a **10 s timeout**, and the AI call is aborted when it runs
+out. A timeout, or two AI failures → `unchecked`.
+
+Why the document text comes first: the index couldn't find text past ~2,000
+characters of a document (NOTES.md SDK feedback #6).
 
 **System:**
 ```
@@ -435,7 +445,7 @@ in `src/game/scoring.test.ts`.
                 │ host: nextQuestion, once canStart(room)
                 │   indexStatus: indexing ──▶ ready            (Start)
                 │                   └──▶ failed ── Retry ──▶ indexing
-                │                   failed twice ──▶ "Start anyway" (off-list answers score 0)
+                │                   failed twice ──▶ "Start anyway" (judged from the text only)
    ┌──────▶ [question]  (30s timer, players submitAnswer)
    │            │ host: revealQuestion  (allowed anytime; timer just stops new answers)
    │         [reveal]
@@ -587,7 +597,8 @@ stopped waiting for the search index (§10.8). Done first thing on Day 3.
    the lobby opens in ~12 s instead of ~2 min. The index is only needed to
    judge answers not on the list, so the host's Start button waits for it
    (players join meanwhile). If indexing fails: Retry. After 2 failures, the
-   host may **"Start anyway (answers not on the list will score 0)"**.
+   host may **"Start anyway"**. *(Nov 23: answers are still judged from the
+   document text; see §4.2.)*
 9. **(Nov 22) Answers not on the list are judged at reveal, not at submit.**
    One AI call per distinct answer, in parallel; players can't learn their
    verdict early from their own submission row. Reveal takes a few seconds longer.
