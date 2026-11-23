@@ -1,8 +1,9 @@
 /**
- * One question played in two real browsers at phone width (375 px): the host
+ * A whole game in two real browsers at phone width (375 px): the host
  * ("Footnote Player A") and a player ("Footnote Player B"). Checks the pages
  * render, nothing scrolls sideways, reduced motion turns the animations off,
- * and saves screenshots of each screen to test-results/.
+ * answers late in the document get a real verdict, and the sign-in box and
+ * account menu are readable. Saves screenshots of each screen to test-results/.
  *
  * COSTS CREDITS (one AI call to write questions, maybe one to judge) and
  * takes ~3 minutes, mostly waiting for the search index. Run it on purpose.
@@ -13,7 +14,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { signInAndGetToken } from './helpers/auth'
 import { callActionAs, readAs } from './helpers/records'
 
-test.describe.configure({ timeout: 8 * 60_000 })
+test.describe.configure({ timeout: 10 * 60_000 })
 
 const PHONE = { width: 375, height: 812 }
 const fixture = readFileSync(new URL('./fixtures/saltmere-almanac.md', import.meta.url), 'utf8')
@@ -23,7 +24,7 @@ test('one question in two phone-sized browsers', async ({ browser, baseURL }, te
   const playerContext = await browser.newContext({ viewport: PHONE, baseURL })
   // Signing in through the context's request sets the session cookie its pages use.
   const host = await signInAndGetToken(hostContext.request, baseURL!, 'Footnote Player A')
-  await signInAndGetToken(playerContext.request, baseURL!, 'Footnote Player B')
+  const player = await signInAndGetToken(playerContext.request, baseURL!, 'Footnote Player B')
   const hostPage = await hostContext.newPage()
   const playerPage = await playerContext.newPage()
 
@@ -86,6 +87,42 @@ test('one question in two phone-sized browsers', async ({ browser, baseURL }, te
       .first()
       .evaluate((el) => getComputedStyle(el).animationName)
     expect(animation).toBe('none')
+    await playerPage.emulateMedia({ reducedMotion: 'no-preference' })
+
+    // Play the rest. The player answers "Burnt-honey fudge" every time: it is in
+    // the document but late in it, where the search index couldn't find it
+    // (Nov 23 bug). It must get a real verdict, never "Couldn't check".
+    for (;;) {
+      await hostPage.getByTestId('next').click()
+      if (await hostPage.getByTestId('final-scoreboard').isVisible({ timeout: 5_000 }).catch(() => false)) break
+      await expect(playerPage.getByTestId('answer-input')).toBeVisible()
+      await playerPage.getByTestId('answer-input').fill('Burnt-honey fudge')
+      await playerPage.getByRole('button', { name: 'Lock in' }).click()
+      await expect(playerPage.getByTestId('answer-locked')).toBeVisible()
+      await hostPage.getByTestId('reveal').click()
+      await expect(hostPage.getByTestId('next')).toBeVisible({ timeout: 30_000 })
+    }
+    const subs = await readAs<{ text: string; verdict: string; points: number }>(baseURL!, player.token, 'submissions', {
+      roomId,
+    })
+    console.log(`[browser] verdicts: ${JSON.stringify(subs.map((s) => [s.data.text, s.data.verdict, s.data.points]))}`)
+    expect(subs.filter((s) => s.data.verdict === 'unchecked'), 'every answer got a real verdict').toEqual([])
+
+    await expect(playerPage.getByTestId('depth-note')).toBeVisible()
+    await playerPage.waitForTimeout(1_500) // ink lines finish flowing
+    await shot(playerPage, '5-player-final')
+    await noSideScroll(playerPage)
+
+    // The account menu and the sign-in box are readable (cream on navy, not cream on cream).
+    await playerPage.setViewportSize({ width: 1024, height: 700 })
+    await playerPage.getByTestId('app-navigation').getByRole('button').first().click()
+    await shot(playerPage, '6-account-menu')
+    const signedOut = await browser.newContext({ viewport: PHONE, baseURL })
+    const outPage = await signedOut.newPage()
+    await outPage.goto(`/join/${joinCode}`)
+    await expect(outPage.getByText('Sign in to continue')).toBeVisible()
+    await shot(outPage, '7-signed-out-join')
+    await signedOut.close()
   } finally {
     await callActionAs(hostContext.request, host.token, 'endRoom', { roomId })
     await hostContext.close()

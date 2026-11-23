@@ -260,7 +260,7 @@
   --color-input: #c9b98f;
   color-scheme: light;
   color: var(--color-foreground);
-  background-color: var(--color-card);
+  background-color: #f5eedd;
   /* faint warmth toward the edges, like real paper */
   background-image: radial-gradient(ellipse at 50% 0%, #fbf6ea 0%, transparent 70%);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset, 0 18px 40px -12px rgba(0, 0, 0, 0.55);
@@ -292,6 +292,25 @@
 }
 .pop { animation: pop 320ms ease-out both; transform-origin: left center; }
 
+/* Final scores: a small ruled note pinned to the page. */
+.note {
+  background-color: #fffaf0;
+  background-image: repeating-linear-gradient(transparent 0 23px, rgba(27, 37, 64, 0.07) 23px 24px);
+  box-shadow: 0 10px 24px -14px rgba(15, 27, 51, 0.6);
+  transform: rotate(-0.6deg);
+}
+
+/* Final scores: each ink line runs down from the top of the note. */
+@keyframes ink-flow {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+.ink-flow {
+  transform-origin: top;
+  animation: ink-flow 900ms cubic-bezier(0.3, 0.7, 0.4, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .ink-drop, .ink-in, .pop { animation: none; }
+  .ink-drop, .ink-in, .pop, .ink-flow { animation: none; }
 }

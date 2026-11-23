@@ -184,7 +184,8 @@ export const revealQuestion: ActionHandler<Env> = async ({ userId, params, tools
     prompt,
     inputs.filter((s) => matchAnswerKey(s.normalized, answerKey) < 0),
     judgeDeps(env, tools, roomId, questionId),
-    { indexReady: (room.indexStatus ?? 'ready') === 'ready' }, // undefined: rooms from before Nov 22
+    // indexStatus undefined: rooms from before Nov 22
+    { documentText: secrets?.data.sourceText ?? '', indexReady: (room.indexStatus ?? 'ready') === 'ready' },
   )
   if (Object.keys(log).length > 0) {
     console.log(`[judge] room=${roomId} q=${questionId} ${Date.now() - started}ms ${JSON.stringify(log)}`)

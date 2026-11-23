@@ -51,7 +51,7 @@ function verifyAnswer(answer: GeneratedAnswer, paragraphs: string[]): AnswerKeyE
 }
 
 /** Paragraphs are separated by blank lines. The quote comes from one paragraph. */
-function splitParagraphs(text: string): string[] {
+export function splitParagraphs(text: string): string[] {
   return text
     .split(/\n\s*\n/)
     .map((p) => p.trim())

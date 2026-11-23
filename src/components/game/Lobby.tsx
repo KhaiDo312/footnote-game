@@ -63,7 +63,14 @@ function StartControls({ roomId, room }: { roomId: string; room: RoomData }) {
     <div className="mt-8" data-testid="start-controls" data-state={state}>
       {state === 'waiting' && (
         <>
-          <Button disabled>Start game</Button>
+          <div className="flex items-center gap-3">
+            <Button disabled>Start game</Button>
+            <span
+              role="status"
+              aria-label="Getting the answer checker ready"
+              className="size-6 rounded-full border-2 border-primary/25 border-t-primary motion-safe:animate-spin"
+            />
+          </div>
           <p className="mt-2 text-sm text-muted-foreground">
             Getting the answer checker ready (about 2 minutes). Players can join meanwhile.
           </p>
@@ -80,7 +87,7 @@ function StartControls({ roomId, room }: { roomId: string; room: RoomData }) {
         <ActionButton
           action="nextQuestion"
           roomId={roomId}
-          label="Start anyway (answers not on the list will score 0)"
+          label="Start anyway (answers are checked against the text only)"
           testId="start"
         />
       )}
