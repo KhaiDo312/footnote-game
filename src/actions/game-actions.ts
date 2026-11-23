@@ -296,32 +296,3 @@ async function syncPlayerIds(tools: ActionTools, roomId: string): Promise<Action
 function fail(error: string): ActionResult<never> {
   return { success: false, error }
 }
-
-// TEMPORARY experiment (Nov 23): does a hyphen in the query empty the search?
-// Host-only. Removed once answered.
-export const debugSearch: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
-  const loaded = await loadAsHost(tools, userId, params.roomId)
-  if (!loaded.success) return loaded
-  const queries = (params.queries as string[]) ?? []
-  const out: Record<string, number | string> = {}
-  const { knowledge } = await import('deepspace/worker')
-  const { roomFolder } = await import('../game/knowledge')
-  const kb = knowledge(env)
-  const items = await kb.list({ folder: roomFolder(loaded.data.roomId), perPage: 50 })
-  out.items = JSON.stringify(items.items.map((i) => [i.status, (i as { name?: string }).name]))
-  for (const q of queries) {
-    for (const mode of ['hybrid'] as const) {
-      for (const matchThreshold of [undefined]) {
-        try {
-          const r = await kb.search(q, { folder: roomFolder(loaded.data.roomId), mode, limit: 5, matchThreshold })
-          out[`${mode}${matchThreshold === 0 ? '/t0' : ''} ${q}`] = `${r.chunks.length} ${JSON.stringify(
-            r.chunks.map((c) => [c.score.toFixed(2), c.text.length, ['fish pie', 'salmon', 'Lantern Night is held', 'pouting', 'Turk'].filter((w) => c.text.includes(w)), c.text.slice(-80)]),
-          )}`
-        } catch (e) {
-          out[`${mode} ${q}`] = `error: ${e instanceof Error ? e.message : String(e)}`
-        }
-      }
-    }
-  }
-  return { success: true, data: out }
-}
