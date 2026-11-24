@@ -34,7 +34,7 @@ export default function Landing() {
         </h1>
         <p className="mb-8 max-w-md text-muted-foreground">
           Upload a text file, invite friends with a five-letter code, and race
-          to name the details nobody else noticed. Coming soon.
+          to name the details nobody else noticed.
         </p>
         <Link
           to="/home"
